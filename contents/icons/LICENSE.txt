@@ -1,0 +1,9 @@
+The icons in this folder (idle-*.svg, new-*.svg) were drawn for Git Commit Watcher
+and are part of it: GPL-3.0-or-later, like the rest of the widget.
+
+idle-*  : git branch graph, nothing new
+new-*   : same graph with the branch tip highlighted (new commits)
+notify-*: same as new-*, with a large (256 px) intrinsic size so notification
+          popups show them sharp
+-dark   : dark strokes, for light panels
+-light  : light strokes, for dark panels

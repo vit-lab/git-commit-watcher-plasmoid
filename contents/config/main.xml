@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0 http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+  <kcfgfile name=""/>
+
+  <group name="General">
+    <!-- Repositories: JSON array of {id, name, path, branch, sshKey, tokenFile, enabled} -->
+    <entry name="repos" type="String">
+      <label>Watched repositories (JSON)</label>
+      <default></default>
+    </entry>
+
+    <!-- Legacy single-repository keys, migrated into "repos" on first start -->
+    <entry name="repo" type="String">
+      <default></default>
+    </entry>
+    <entry name="branch" type="String">
+      <default></default>
+    </entry>
+    <entry name="sshKey" type="String">
+      <default></default>
+    </entry>
+    <entry name="tokenFile" type="String">
+      <default></default>
+    </entry>
+    <entry name="autoUnlock" type="Bool">
+      <label>Ask for the key passphrase automatically when the key is locked</label>
+      <default>true</default>
+    </entry>
+    <entry name="unlockHours" type="Int">
+      <label>Lock the key again after this many hours (0 = until logout)</label>
+      <default>0</default>
+      <min>0</min>
+      <max>168</max>
+    </entry>
+    <entry name="intervalMinutes" type="Int">
+      <label>Check interval in minutes</label>
+      <default>5</default>
+      <min>1</min>
+      <max>1440</max>
+    </entry>
+
+    <!-- Notifications -->
+    <entry name="notifyEnabled" type="Bool">
+      <default>true</default>
+    </entry>
+    <entry name="notifyMode" type="Int">
+      <label>0 = one summary, 1 = one notification per commit, 2 = latest commit only</label>
+      <default>0</default>
+    </entry>
+    <entry name="notifyMax" type="Int">
+      <label>Maximum number of commits shown per notification batch</label>
+      <default>5</default>
+      <min>1</min>
+      <max>20</max>
+    </entry>
+    <entry name="urgency" type="Int">
+      <label>0 = low, 1 = normal, 2 = critical</label>
+      <default>1</default>
+    </entry>
+    <entry name="useDefaultTimeout" type="Bool">
+      <default>true</default>
+    </entry>
+    <entry name="timeoutSec" type="Int">
+      <label>Notification timeout in seconds (0 = until dismissed)</label>
+      <default>10</default>
+      <min>0</min>
+      <max>600</max>
+    </entry>
+    <entry name="showAuthor" type="Bool">
+      <default>true</default>
+    </entry>
+    <entry name="showHash" type="Bool">
+      <default>false</default>
+    </entry>
+    <entry name="notifyIcon" type="String">
+      <default></default>
+    </entry>
+    <entry name="playSound" type="Bool">
+      <default>false</default>
+    </entry>
+    <entry name="soundName" type="String">
+      <default>message-new-instant</default>
+    </entry>
+
+    <!-- Behavior / appearance -->
+    <entry name="showBadge" type="Bool">
+      <default>true</default>
+    </entry>
+    <entry name="hideWhenRead" type="Bool">
+      <default>false</default>
+    </entry>
+    <entry name="markReadOnOpen" type="Bool">
+      <default>true</default>
+    </entry>
+    <entry name="iconSize" type="Int">
+      <default>0</default>
+      <min>0</min>
+      <max>1</max>
+    </entry>
+    <entry name="iconIdle" type="String">
+      <default></default>
+    </entry>
+    <entry name="iconNew" type="String">
+      <default></default>
+    </entry>
+
+    <!-- Internal state (not shown in the settings dialog) -->
+    <entry name="repoState" type="String">
+      <label>Per-repository state (JSON): last notified and last acknowledged commit</label>
+      <default></default>
+    </entry>
+    <entry name="lastNotified" type="String">
+      <default></default>
+    </entry>
+    <entry name="ackedTip" type="String">
+      <default></default>
+    </entry>
+    <entry name="stateRepo" type="String">
+      <default></default>
+    </entry>
+  </group>
+</kcfg>

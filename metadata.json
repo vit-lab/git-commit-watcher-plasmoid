@@ -1,0 +1,21 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "vitalyle@protonmail.com",
+                "Name": "Vitalii Lebukhorskyi"
+            }
+        ],
+        "BugReportUrl": "https://github.com/vit-lab/git-commit-watcher-plasmoid/issues",
+        "Category": "Development",
+        "Description": "Notifies you about new commits in one or more git repositories and shows their changes",
+        "Icon": "folder-git",
+        "Id": "local.gitcommitwatcher",
+        "License": "GPL-3.0+",
+        "Name": "Git Commit Watcher",
+        "Version": "1.0",
+        "Website": "https://github.com/vit-lab/git-commit-watcher-plasmoid"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}
