@@ -33,7 +33,10 @@ First public release.
 - Bundled panel and notification icons in light and dark variants, "Normal" / "Big" icon size, and an icon
   chooser (KDE "Select Icon" dialog) to pick your own.
 - About page with author, e-mail button and "Report an issue" link.
-- Documentation: `README.md`, `SECURITY.md`, this changelog, issue templates and a packaging script.
+- Installable package `git-commit-watcher-1.0.plasmoid` attached to the release (install with
+  `kpackagetool6 -t Plasma/Applet -i` or from the widget explorer: *Get New Widgets… → Install Widget From
+  Local File…*), and `scripts/package.sh` to build it from the source.
+- Documentation: `README.md`, `SECURITY.md`, this changelog and issue templates.
 
 [Unreleased]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.0...HEAD
 [1.0]: https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/tag/v1.0

@@ -42,16 +42,39 @@ Developed and used on Arch Linux with KDE Plasma 6 (Wayland).
 
 ## Install
 
-### From a release (recommended)
+### From the `.plasmoid` file (recommended)
 
-Download `git-commit-watcher-<version>.plasmoid` from the
-[Releases](https://github.com/vit-lab/git-commit-watcher-plasmoid/releases) page, then:
+1. **Download** `git-commit-watcher-1.0.plasmoid` from the
+   [latest release](https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/latest)
+   (under *Assets* — not the automatic "Source code" archives). In a terminal:
 
-```sh
-kpackagetool6 -t Plasma/Applet -i git-commit-watcher-1.0.plasmoid
-```
+   ```sh
+   curl -LO https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/download/v1.0/git-commit-watcher-1.0.plasmoid
+   ```
 
-Right-click the panel or desktop → **Add or Manage Widgets…** → **Git Commit Watcher**.
+2. **Install** it, either in a terminal:
+
+   ```sh
+   kpackagetool6 -t Plasma/Applet -i git-commit-watcher-1.0.plasmoid
+   ```
+
+   or with the mouse: right-click the panel or desktop → **Add or Manage Widgets…** →
+   **Get New Widgets…** → **Install Widget From Local File…** → choose the downloaded file.
+
+3. **Add the widget:** right-click the panel or desktop → **Add or Manage Widgets…** →
+   **Git Commit Watcher** (drag it to the panel). If it is not listed, restart the shell:
+   `plasmashell --replace &`.
+
+4. *Optional:* check that the right version is installed, and (if the release notes list a SHA-256 checksum)
+   that the file is the one that was published:
+
+   ```sh
+   grep Version ~/.local/share/plasma/plasmoids/local.gitcommitwatcher/metadata.json
+   sha256sum git-commit-watcher-1.0.plasmoid
+   ```
+
+Then continue with the [Quick start](#quick-start). Read [SECURITY.md](SECURITY.md) before you give the widget
+an SSH key or a token.
 
 ### From source
 
@@ -67,7 +90,8 @@ kpackagetool6 -t Plasma/Applet -i dist/git-commit-watcher-*.plasmoid
 
 ### Update
 
-Remove the old version first, then install the new package, and restart the shell:
+Download the new `.plasmoid` from the Releases page, remove the old version first, then install the new
+package and restart the shell:
 
 ```sh
 kpackagetool6 -t Plasma/Applet -r local.gitcommitwatcher

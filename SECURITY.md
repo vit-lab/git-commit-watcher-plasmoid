@@ -100,7 +100,11 @@ This is a hobby project: I answer on a best-effort basis and cannot promise resp
 2. Protect SSH keys with a **passphrase** and use a short unlock lifetime in the widget settings.
 3. Keep key and token files at `chmod 600`.
 4. Watch only repositories you trust.
-5. Update to the latest release and read the [CHANGELOG](CHANGELOG.md).
+5. Install the widget only from the `.plasmoid` file on the official
+   [Releases page](https://github.com/vit-lab/git-commit-watcher-plasmoid/releases) of this repository (or build
+   it yourself from the source with `./scripts/package.sh`), and compare `sha256sum <file>` with the checksum in
+   the release notes when one is given. Do not install copies from other places.
+6. Update to the latest release and read the [CHANGELOG](CHANGELOG.md).
 
 ## No warranty
 

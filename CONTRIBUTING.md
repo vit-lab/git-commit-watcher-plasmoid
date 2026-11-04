@@ -16,7 +16,10 @@ Security problems: see [SECURITY.md](SECURITY.md) and do not use public issues.
   - `bash -n contents/code/*.sh`
   - `qmllint contents/ui/*.qml` (from Qt; warnings about unresolved KDE modules are expected when the KDE
     QML modules are not installed)
-  - `./scripts/package.sh` and install the result with `kpackagetool6 -t Plasma/Applet -i dist/*.plasmoid`
+  - `./scripts/package.sh` builds `dist/git-commit-watcher-<version>.plasmoid`; to try it, remove the installed
+    version (`kpackagetool6 -t Plasma/Applet -r local.gitcommitwatcher`), install the new file
+    (`kpackagetool6 -t Plasma/Applet -i dist/git-commit-watcher-*.plasmoid`) and restart the shell
+    (`plasmashell --replace &`)
 - The widget must stay **read-only** for repositories: no commits, pushes or working-tree changes.
 - Add a line to the *Unreleased* section of [CHANGELOG.md](CHANGELOG.md).
 
