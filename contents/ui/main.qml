@@ -18,15 +18,22 @@ PlasmoidItem {
     readonly property string openFileScriptPath: Helpers.urlToPath(Qt.resolvedUrl("../code/openfile.sh"))
 
     // ------------------------------------------------------------------ data
-    property var repoList: []            // enabled repositories: {id, name, path, branch, sshKey, tokenFile, enabled}
+    // Enabled things to check: one entry per repository and branch (a repository with several branches in
+    // its "branch" setting gives several entries, see Helpers.expandRepos):
+    // {id, parentId, name, baseName, multi, path, branch, sshKey, tokenFile, enabled}
+    property var repoList: []
     property var states: ({})            // id -> runtime state (see st())
     property var saved: ({})             // id -> {sig, n: last notified tip, a: last acknowledged tip}
     property var cmdMap: ({})            // running check command -> repo id
+    property var discoverMap: ({})       // running branch-listing command -> repository id
     property var agentMap: ({})          // running agent command -> {id, action, key}
     property var unlockingKeys: ({})     // key path -> true while a passphrase dialog is open
     property int rev: 0                  // bumped after every change of the data above
 
-    property string currentTab: "all"    // repo id or "all"
+    property string currentTab: "all"    // "all", or "p:<repository id>" (the repository selector)
+    property string currentBranch: ""    // "" = all branches of the chosen repository, else the id of one branch entry
+    property var branchModel: []         // entries of the branch switcher: {id, text}
+    property string branchSig: ""
     property var displayCommits: []
     property var problems: []
     property var tabModel: []
@@ -43,12 +50,28 @@ PlasmoidItem {
     property var openMap: ({})           // running "open file" command -> true
     property var notifyTargets: ({})     // running notify-send command -> {repoId, hash} to show on click
 
-    readonly property bool unconfigured: repoList.length === 0
+    // Repositories whose branch setting is ALL or a pattern: their branches are looked up (and cached).
+    property var parsedRepos: []
+    property var discovered: ({})        // repository id -> branch names found
+    property var discoverState: ({})     // repository id -> {cmd, started, error, locked, prompted}
+    readonly property bool waitingForBranches: repoList.length === 0 && parsedRepos.some(function(r) {
+        return r.enabled && Helpers.hasWildcard(r.branch);
+    })
+    readonly property bool unconfigured: repoList.length === 0 && !waitingForBranches
     readonly property int totalUnread: { root.rev; return sumUnread(); }
     readonly property bool anyOverflow: { root.rev; return anyState("overflow"); }
     readonly property bool anyChecking: { root.rev; return anyState("checking"); }
     readonly property bool anyLocked: { root.rev; return anyState("locked"); }
-    readonly property bool showAllTab: repoList.length > 1
+    readonly property bool showAllTab: { root.rev; return parentCount() > 1; }
+    // The branches of the chosen repository (more than one: the branch switcher is shown).
+    readonly property var branchUnits: {
+        root.rev;
+        if (!showAllTab) {
+            return repoList;
+        }
+        return currentTab.indexOf("p:") === 0 ? parentUnits(currentTab.slice(2)) : [];
+    }
+    readonly property bool showBranchBar: branchUnits.length > 1
     readonly property int tabIndex: {
         var t = root.tabModel;
         for (var i = 0; i < t.length; ++i) {
@@ -58,7 +81,7 @@ PlasmoidItem {
         }
         return 0;
     }
-    readonly property string headerTitle: repoList.length === 1 ? Helpers.repoDisplayName(repoList[0]) : i18n("Git Commit Watcher")
+    readonly property string headerTitle: { root.rev; return parentCount() === 1 ? repoList[0].baseName : i18n("Git Commit Watcher"); }
 
     // Re-read the repository list whenever the setting changes (e.g. after "Apply").
     readonly property string reposJson: cfg.repos
@@ -158,7 +181,7 @@ PlasmoidItem {
     // With "pin" on, the popup stays open when another window gets the focus.
     hideOnWindowDeactivate: !cfg.pin
 
-    toolTipMainText: repoList.length === 1 ? headerTitle : i18n("Git Commit Watcher")
+    toolTipMainText: parentCount() === 1 ? headerTitle : i18n("Git Commit Watcher")
     toolTipSubText: {
         root.rev;
         var t = buildTooltip();
@@ -204,6 +227,20 @@ PlasmoidItem {
             if (id !== undefined) {
                 delete root.cmdMap[sourceName];
                 root.handleResult(id, sourceName, data["stdout"], data["stderr"], data["exit code"]);
+            }
+        }
+    }
+
+    Plasma5Support.DataSource {
+        id: finder
+        engine: "executable"
+        connectedSources: []
+        onNewData: (sourceName, data) => {
+            disconnectSource(sourceName);
+            var id = root.discoverMap[sourceName];
+            if (id !== undefined) {
+                delete root.discoverMap[sourceName];
+                root.handleDiscovered(id, sourceName, data["stdout"], data["stderr"], data["exit code"]);
             }
         }
     }
@@ -319,12 +356,68 @@ PlasmoidItem {
         return Helpers.repoDisplayName(repoById(id));
     }
 
-    function sumUnread() {
+    // Unread commits of all repositories. A commit that is on several watched branches of the same
+    // repository (for example after a merge) is counted once.
+    // The entries (repository + branch) that belong to one repository setting.
+    function parentUnits(parentId) {
+        return repoList.filter(function(r) { return r.parentId === parentId; });
+    }
+
+    // Number of repository settings that are being watched (a repository with several branches counts once).
+    function parentCount() {
+        var seen = {};
         var n = 0;
         for (var i = 0; i < repoList.length; ++i) {
-            n += st(repoList[i].id).unread;
+            if (!seen[repoList[i].parentId]) {
+                seen[repoList[i].parentId] = true;
+                ++n;
+            }
         }
         return n;
+    }
+
+    // onlyParent (optional): count only the branches of that repository.
+    function sumUnread(onlyParent) {
+        var n = 0;
+        var seen = {};
+        for (var i = 0; i < repoList.length; ++i) {
+            var r = repoList[i];
+            if (onlyParent !== undefined && r.parentId !== onlyParent) {
+                continue;
+            }
+            var s = st(r.id);
+            if (!r.multi) {
+                n += s.unread;
+                continue;
+            }
+            for (var k = 0; k < s.unread && k < s.commits.length; ++k) {
+                var key = r.parentId + "|" + s.commits[k].hash;
+                if (!seen[key]) {
+                    seen[key] = true;
+                    ++n;
+                }
+            }
+        }
+        return n;
+    }
+
+    // True if another watched branch of the same repository already lists this commit.
+    function seenOnSibling(r, hash) {
+        if (!r.multi) {
+            return false;
+        }
+        for (var i = 0; i < repoList.length; ++i) {
+            var o = repoList[i];
+            if (o.id !== r.id && o.parentId === r.parentId) {
+                var cs = st(o.id).commits;
+                for (var k = 0; k < cs.length; ++k) {
+                    if (cs[k].hash === hash) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     function anyState(which) {
@@ -378,9 +471,26 @@ PlasmoidItem {
         cfg.ackedTip = "";
     }
 
+    function loadDiscovered() {
+        try {
+            var o = JSON.parse(cfg.branchCache || "{}");
+            discovered = (o && typeof o === "object") ? o : {};
+        } catch (e) {
+            discovered = {};
+        }
+    }
+
     function reloadRepos() {
         migrateLegacy();
-        var all = Helpers.parseRepos(cfg.repos, false);
+        loadDiscovered();
+        rebuildUnits();
+        Qt.callLater(root.checkAll);
+    }
+
+    // (Re)builds the list of things to check from the settings and the branches found so far.
+    function rebuildUnits() {
+        parsedRepos = Helpers.parseRepos(cfg.repos, false);
+        var all = Helpers.expandRepos(parsedRepos, discovered);
         saved = loadSaved();
 
         var list = [];
@@ -402,19 +512,33 @@ PlasmoidItem {
             }
         }
         repoList = list;
-        if (currentTab !== "all" && !keep[currentTab]) {
+        if (currentTab !== "all" && !(currentTab.indexOf("p:") === 0 && parentUnits(currentTab.slice(2)).length > 0)) {
             currentTab = "all";
+        }
+        if (currentBranch !== "" && !keep[currentBranch]) {
+            currentBranch = "";
         }
         for (var j = 0; j < list.length; ++j) {
             updateUnread(list[j].id);
         }
         bump();
-        Qt.callLater(root.checkAll);
+    }
+
+    // The text before the hash in a list row: the repository (and branches) in "All repositories",
+    // the branches in "All branches" of one repository, nothing when a single branch is shown.
+    function rowPrefix(c) {
+        if (showAllTab && currentTab === "all") {
+            return c.repoName;
+        }
+        if (showBranchBar && currentBranch === "") {
+            return c.branchLabel;
+        }
+        return "";
     }
 
     function buildTooltip() {
         if (repoList.length === 0) {
-            return i18n("No repository configured");
+            return waitingForBranches ? i18n("Looking for branches…") : i18n("No repository configured");
         }
         var lines = [];
         var latest = "";
@@ -444,11 +568,23 @@ PlasmoidItem {
 
     function effectiveIds() {
         var ids = [];
-        if (repoList.length > 1 && currentTab !== "all") {
-            ids.push(currentTab);
+        var scope = repoList;
+        if (showAllTab && currentTab.indexOf("p:") === 0) {
+            scope = parentUnits(currentTab.slice(2));
+        }
+        var one = "";
+        if (scope.length > 1 && currentBranch !== "") {
+            for (var j = 0; j < scope.length; ++j) {
+                if (scope[j].id === currentBranch) {
+                    one = currentBranch;
+                }
+            }
+        }
+        if (one !== "") {
+            ids.push(one);
         } else {
-            for (var i = 0; i < repoList.length; ++i) {
-                ids.push(repoList[i].id);
+            for (var i = 0; i < scope.length; ++i) {
+                ids.push(scope[i].id);
             }
         }
         return ids;
@@ -458,16 +594,33 @@ PlasmoidItem {
         var ids = effectiveIds();
         var out = [];
         var probs = [];
+        var merged = {};                 // parentId|hash -> entry, for commits on several watched branches
         for (var k = 0; k < ids.length; ++k) {
             var id = ids[k];
             var s = st(id);
+            var u = repoById(id);
             var hl = Math.max(s.unread, s.highlight);
             for (var i = 0; i < s.commits.length; ++i) {
                 var c = s.commits[i];
-                out.push({
+                if (ids.length > 1 && u && u.multi) {
+                    var mk = u.parentId + "|" + c.hash;
+                    var prev = merged[mk];
+                    if (prev) {
+                        prev.branches.push(u.branch);
+                        prev.repoName = u.baseName + " (" + prev.branches.join(", ") + ")";
+                        prev.branchLabel = prev.branches.join(", ");
+                        prev.unread = prev.unread || i < hl;
+                        continue;
+                    }
+                }
+                var entry = {
                     repoId: id, repoName: nameOf(id), hash: c.hash, short: c.short, author: c.author,
-                    subject: c.subject, when: c.when, ts: c.ts, unread: i < hl
-                });
+                    subject: c.subject, when: c.when, ts: c.ts, unread: i < hl, branches: [u ? u.branch : ""], branchLabel: u ? u.branch : ""
+                };
+                if (ids.length > 1 && u && u.multi) {
+                    merged[u.parentId + "|" + c.hash] = entry;
+                }
+                out.push(entry);
             }
             if (s.locked || s.checkState === "error") {
                 probs.push({ id: id, name: nameOf(id), msg: s.error, locked: s.locked });
@@ -476,18 +629,31 @@ PlasmoidItem {
         if (ids.length > 1) {
             out.sort(function(a, b) { return b.ts - a.ts; });
         }
+        for (var pid2 in discoverState) {
+            var ds = discoverState[pid2];
+            var pr = parsedRepos.filter(function(x) { return x.id === pid2 && x.enabled; })[0];
+            if (pr && ds.error) {
+                probs.push({ id: pid2, name: Helpers.repoDisplayName(pr), msg: ds.error, locked: ds.locked });
+            }
+        }
         displayCommits = out;
         problems = probs;
 
         // Repository selector entries; only replaced when something changed, so an open
         // drop-down is not reset by every refresh.
         var tabs = [];
-        if (repoList.length > 1) {
+        if (showAllTab) {
             tabs.push({ id: "all", text: totalUnread > 0 ? i18n("All repositories (%1)", totalUnread) : i18n("All repositories") });
+            var lastParent = "";
             for (var j = 0; j < repoList.length; ++j) {
-                var u = st(repoList[j].id).unread;
-                var nm = Helpers.repoDisplayName(repoList[j]);
-                tabs.push({ id: repoList[j].id, text: u > 0 ? nm + " (" + u + ")" : nm });
+                var pid = repoList[j].parentId;
+                if (pid === lastParent) {
+                    continue;
+                }
+                lastParent = pid;
+                var un = sumUnread(pid);
+                var nm = repoList[j].baseName;
+                tabs.push({ id: "p:" + pid, text: un > 0 ? nm + " (" + un + ")" : nm });
             }
         }
         var sig = JSON.stringify(tabs);
@@ -495,13 +661,98 @@ PlasmoidItem {
             tabSig = sig;
             tabModel = tabs;
         }
+
+        // Branch switcher of the chosen repository.
+        var bs = [];
+        var bu = branchUnits;
+        if (bu.length > 1) {
+            var tot = sumUnread(bu[0].parentId);
+            bs.push({ id: "", text: tot > 0 ? i18n("All branches (%1)", tot) : i18n("All branches") });
+            for (var b = 0; b < bu.length; ++b) {
+                var bn = st(bu[b].id).unread;
+                bs.push({ id: bu[b].id, text: bn > 0 ? bu[b].branch + " (" + bn + ")" : bu[b].branch });
+            }
+        }
+        var bsig = JSON.stringify(bs);
+        if (bsig !== branchSig) {
+            branchSig = bsig;
+            branchModel = bs;
+        }
     }
 
     // ------------------------------------------------------------- checks
 
     function checkAll() {
+        discoverAll();
+        checkUnits();
+    }
+
+    function checkUnits() {
         for (var i = 0; i < repoList.length; ++i) {
             checkRepo(repoList[i]);
+        }
+    }
+
+    // ---------------------------------------------- branches for ALL / patterns
+
+    function discoverAll() {
+        for (var i = 0; i < parsedRepos.length; ++i) {
+            var r = parsedRepos[i];
+            if (r.enabled && Helpers.hasWildcard(r.branch)) {
+                discoverRepo(r);
+            }
+        }
+    }
+
+    function discoverRepo(r) {
+        var d = discoverState[r.id] || (discoverState[r.id] = { cmd: "", started: 0, error: "", locked: false, prompted: false });
+        if (d.cmd && Date.now() - d.started < 150000) {
+            return;
+        }
+        if (d.cmd) {
+            finder.disconnectSource(d.cmd);
+            delete discoverMap[d.cmd];
+        }
+        d.started = Date.now();
+        d.cmd = Helpers.branchesCommand(scriptPath, { repo: r.path, key: r.sshKey, tokenFile: r.tokenFile });
+        discoverMap[d.cmd] = r.id;
+        finder.connectSource(d.cmd);
+    }
+
+    function handleDiscovered(id, cmd, stdout, stderr, exitCode) {
+        var d = discoverState[id];
+        if (!d || d.cmd !== cmd) {
+            return;
+        }
+        d.cmd = "";
+        var res = Helpers.parseBranches(stdout, stderr, exitCode);
+        d.locked = false;
+        if (!res.ok) {
+            d.error = res.msg;
+            if (res.code === "locked") {
+                d.locked = true;
+                if (cfg.autoUnlock && !d.prompted) {
+                    d.prompted = true;
+                    Qt.callLater(function() { root.unlockRepo(id); });
+                }
+            }
+            bump();
+            return;
+        }
+        d.error = "";
+        var names = res.branches.slice().sort();
+        if (JSON.stringify(names) !== JSON.stringify(discovered[id] || null)) {
+            var all = {};
+            for (var k in discovered) {
+                all[k] = discovered[k];
+            }
+            all[id] = names;
+            discovered = all;
+            cfg.branchCache = JSON.stringify(all);
+            rebuildUnits();
+            Qt.callLater(root.checkUnits);
+        } else {
+            bump();
         }
     }
 
@@ -567,7 +818,16 @@ PlasmoidItem {
             if (fresh.list.length > 0) {
                 sv.n = res.tip;
                 saveState();
-                notifyNew(r, fresh);
+                if (r.multi) {
+                    // Announced already by another watched branch of this repository (or merged from it).
+                    fresh = {
+                        list: fresh.list.filter(function(c) { return !root.seenOnSibling(r, c.hash); }),
+                        overflow: fresh.overflow
+                    };
+                }
+                if (fresh.list.length > 0) {
+                    notifyNew(r, fresh);
+                }
             }
         }
         updateUnread(id);
@@ -584,7 +844,9 @@ PlasmoidItem {
 
     // which: a repo id, or "all"
     function markAllRead(which) {
-        var ids = which === "all" ? repoList.map(function(r) { return r.id; }) : [which];
+        var ids = which === "all" ? repoList.map(function(r) { return r.id; })
+            : which.indexOf("p:") === 0 ? parentUnits(which.slice(2)).map(function(r) { return r.id; })
+            : [which];
         var changed = false;
         for (var i = 0; i < ids.length; ++i) {
             var s = st(ids[i]);
@@ -621,9 +883,19 @@ PlasmoidItem {
     }
 
     onCurrentTabChanged: {
+        currentBranch = "";
         closeDiff();
         buildDisplay();
     }
+
+    onCurrentBranchChanged: {
+        closeDiff();
+        buildDisplay();
+    }
+
+    // What "Mark all as read" applies to: everything, one repository or one branch.
+    readonly property string selection: currentBranch !== "" && showBranchBar ? currentBranch
+                                        : (showAllTab ? currentTab : "all")
 
     function openConfig() {
         var a = Plasmoid.internalAction("configure");
@@ -635,7 +907,7 @@ PlasmoidItem {
     // ----------------------------------------------------------- SSH keys
 
     function unlockRepo(id) {
-        var r = repoById(id);
+        var r = repoById(id) || parsedRepos.filter(function(x) { return x.id === id; })[0];
         if (!r || !r.sshKey || unlockingKeys[r.sshKey]) {
             return;
         }
@@ -788,7 +1060,9 @@ PlasmoidItem {
         if (!t || !repoById(t.repoId)) {
             return;
         }
-        currentTab = showAllTab ? t.repoId : "all";     // also closes an open diff
+        var tu = repoById(t.repoId);
+        currentTab = showAllTab ? "p:" + tu.parentId : "all";     // also closes an open diff
+        currentBranch = tu.multi ? tu.id : "";
         expanded = true;
         if (!t.hash) {
             return;
@@ -1075,7 +1349,7 @@ PlasmoidItem {
                     icon.name: "checkmark"
                     display: PlasmaComponents.AbstractButton.IconOnly
                     enabled: root.totalUnread > 0
-                    onClicked: root.markAllRead(root.showAllTab ? root.currentTab : "all")
+                    onClicked: root.markAllRead(root.selection)
                     PlasmaComponents.ToolTip.text: i18n("Mark all as read")
                     PlasmaComponents.ToolTip.visible: hovered
                 }
@@ -1115,6 +1389,25 @@ PlasmoidItem {
             anchors.fill: parent
             spacing: 0
             visible: root.diffCommit === null
+
+            // Branch switcher: only when the chosen repository is watched on several branches.
+            Flow {
+                visible: root.showBranchBar
+                Layout.fillWidth: true
+                Layout.margins: Kirigami.Units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
+
+                Repeater {
+                    model: root.branchModel
+                    delegate: PlasmaComponents.Button {
+                        required property var modelData
+                        text: modelData.text
+                        icon.name: modelData.id === "" ? "" : "vcs-branch"
+                        highlighted: root.currentBranch === modelData.id
+                        onClicked: root.currentBranch = modelData.id
+                    }
+                }
+            }
 
             Repeater {
                 model: root.problems
@@ -1256,7 +1549,7 @@ PlasmoidItem {
                                     textFormat: Text.StyledText
                                     font: Kirigami.Theme.smallFont
                                     text: Helpers.metaHtml(row.modelData,
-                                                           root.showAllTab && root.currentTab === "all" ? row.modelData.repoName : "",
+                                                           root.rowPrefix(row.modelData),
                                                            root.rowColors)
                                 }
                             }
@@ -1277,6 +1570,9 @@ PlasmoidItem {
                     text: {
                         if (root.unconfigured) {
                             return i18n("No repository configured");
+                        }
+                        if (root.waitingForBranches) {
+                            return root.problems.length > 0 ? i18n("Nothing to show yet") : i18n("Looking for branches…");
                         }
                         if (root.anyChecking) {
                             return i18n("Checking…");

@@ -146,6 +146,10 @@
       <label>Per-repository state (JSON): last notified and last acknowledged commit</label>
       <default></default>
     </entry>
+    <entry name="branchCache" type="String">
+      <label>Branches found for repositories set to ALL / a pattern (JSON: repository id -> names)</label>
+      <default></default>
+    </entry>
     <entry name="lastNotified" type="String">
       <default></default>
     </entry>

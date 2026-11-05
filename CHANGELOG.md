@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Several branches per repository: list them in the "Branch" field separated by commas or spaces
+  (`main, dev`). Every branch is checked on its own (own unread counter, "Test connection" tests each of
+  them), without adding the repository twice. A commit that is on
+  several watched branches is announced once, counted once and shown once. When the chosen repository has
+  several branches, a branch switcher ("All branches", "main", "dev", each with its unread count) appears under
+  the header; the repository selector at the top lists repositories only. The list shows which branches a
+  commit is on. Existing single-branch settings keep working unchanged. Several branches of one local clone are
+  fetched one after another (`flock`).
+- ALL option for the branch setting: a check box "Watch all branches (ALL)" (or `ALL` typed in the field) watches
+  every branch of the repository; patterns such as `release/*` watch the branches that match, also together
+  with listed ones (`main, release/*`). The branches are looked up at every check (`git ls-remote` for a
+  remote URL, the fetched remote-tracking branches for a local clone) and remembered, so new branches are
+  picked up and deleted ones disappear; at most 30 branches are taken. "Test connection" shows which branches
+  will be watched.
+
 ### Changed
 
 - Repository settings: the hint in the "Path or URL" field and the text below it now also show the HTTPS form

@@ -97,6 +97,129 @@ function parseRepos(json, keepEmpty) {
     return out;
 }
 
+// "main, dev release/1.x" -> ["main", "dev", "release/1.x"] (separated by commas, semicolons or spaces).
+function splitBranches(s) {
+    var parts = String(s || "").split(/[\s,;]+/);
+    var out = [];
+    for (var i = 0; i < parts.length; ++i) {
+        if (parts[i] !== "" && out.indexOf(parts[i]) < 0) {
+            out.push(parts[i]);
+        }
+    }
+    return out;
+}
+
+// "ALL" (any case) or a pattern with * or ? (release/*) stands for every branch that matches.
+var MAX_AUTO_BRANCHES = 30;
+
+function isWildcardToken(t) {
+    return /^all$/i.test(t) || /[*?]/.test(t);
+}
+
+function hasWildcard(s) {
+    return splitBranches(s).some(isWildcardToken);
+}
+
+function tokenRegExp(t) {
+    if (/^all$/i.test(t)) {
+        return /^.*$/;
+    }
+    var re = String(t).replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+    return new RegExp("^" + re + "$");
+}
+
+// The branches to watch: the listed ones, then (alphabetically, main and master first) the ones among
+// `available` that match an ALL / pattern entry. `available` = branch names found in the repository, or
+// null if they are not known yet.
+function resolveBranches(str, available) {
+    var toks = splitBranches(str);
+    var out = [];
+    var pats = [];
+    for (var i = 0; i < toks.length; ++i) {
+        if (isWildcardToken(toks[i])) {
+            pats.push(tokenRegExp(toks[i]));
+        } else {
+            out.push(toks[i]);
+        }
+    }
+    if (pats.length > 0 && available) {
+        var extra = available.filter(function(b) {
+            return out.indexOf(b) < 0 && pats.some(function(re) { return re.test(b); });
+        });
+        var rank = function(b) { return b === "main" ? 0 : b === "master" ? 1 : 2; };
+        extra.sort(function(a, b) {
+            return rank(a) - rank(b) || (a < b ? -1 : a > b ? 1 : 0);
+        });
+        out = out.concat(extra.slice(0, MAX_AUTO_BRANCHES));
+    }
+    return out;
+}
+
+// The things the widget actually checks: one entry per repository and branch. A repository with
+// several branches in its "branch" setting (or with ALL / a pattern, see resolveBranches; `discovered`
+// maps repository id -> branch names found in it) becomes several entries. The first listed branch keeps
+// the id of the repository (so the saved state of an existing single-branch repository still applies),
+// all others get "<id>:<branch>". Every entry has parentId (the id of the repository setting), baseName
+// (the name without the branch) and multi (true if the repository has more than one branch).
+function expandRepos(repos, discovered) {
+    var out = [];
+    for (var i = 0; i < repos.length; ++i) {
+        var r = repos[i];
+        var branches = resolveBranches(r.branch, discovered ? discovered[r.id] : null);
+        var listed = splitBranches(r.branch).filter(function(t) { return !isWildcardToken(t); }).length;
+        var base = repoDisplayName(r);
+        if (branches.length <= 1 && !hasWildcard(r.branch)) {
+            out.push({
+                id: r.id, parentId: r.id, name: r.name, baseName: base, multi: false,
+                path: r.path, branch: branches.length === 1 ? branches[0] : "",
+                sshKey: r.sshKey, tokenFile: r.tokenFile, enabled: r.enabled
+            });
+            continue;
+        }
+        for (var k = 0; k < branches.length; ++k) {
+            var multi = branches.length > 1;
+            out.push({
+                id: (k === 0 && listed > 0) ? r.id : r.id + ":" + branches[k], parentId: r.id,
+                name: multi ? base + " (" + branches[k] + ")" : r.name, baseName: base, multi: multi,
+                path: r.path, branch: branches[k],
+                sshKey: r.sshKey, tokenFile: r.tokenFile, enabled: r.enabled
+            });
+        }
+    }
+    return out;
+}
+
+function branchesCommand(script, o) {
+    return "GCW_MODE=branches"
+        + " GCW_REPO=" + q(o.repo)
+        + " GCW_KEY=" + q(o.key)
+        + " GCW_TOKEN_FILE=" + q(o.tokenFile)
+        + " bash " + q(script) + uniq();
+}
+
+function parseBranches(stdout, stderr, exitCode) {
+    var res = { ok: false, msg: "", code: "", branches: [] };
+    var info = {};
+    var lines = String(stdout || "").split("\n");
+    for (var i = 0; i < lines.length; ++i) {
+        var line = lines[i];
+        if (line.charAt(0) === "B" && line.charAt(1) === US) {
+            res.branches.push(line.substring(2));
+        } else {
+            var k = line.indexOf("=");
+            if (k > 0) {
+                info[line.substring(0, k)] = line.substring(k + 1);
+            }
+        }
+    }
+    res.code = info.CODE || "";
+    res.ok = info.STATUS === "ok";
+    if (!res.ok) {
+        res.msg = info.MSG || String(stderr || "").trim() || ("Listing the branches failed (exit code " + exitCode + ")");
+    }
+    return res;
+}
+
 function repoDisplayName(r) {
     return (r && (r.name || repoName(r.path))) || "";
 }

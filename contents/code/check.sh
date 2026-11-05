@@ -2,6 +2,7 @@
 # Git Commit Watcher helper: fetches a repository and prints its latest commits.
 #
 # Input (environment): GCW_REPO, GCW_BRANCH, GCW_KEY, GCW_TOKEN_FILE, GCW_LIMIT
+#   GCW_MODE=branches: print only the branches ("B<US>name" lines) instead of the commits.
 #   GCW_REPO is either a path to a local clone or a remote URL (ssh/https).
 #
 # Output: KEY=VALUE lines (STATUS, TIP, URL, MSG) followed by one line per commit:
@@ -77,16 +78,47 @@ fi
 
 run_git() { "${TO[@]}" git -C "$DIR" "$@" 2>&1; }
 
+# Several watched branches of one local clone fetch at the same moment; git does not like that
+# (ref locks), so those fetches take turns. Without flock the fetch just runs as it is.
+run_git_serial() {
+    if command -v flock >/dev/null 2>&1; then
+        local lock
+        lock="${XDG_RUNTIME_DIR:-/tmp}/gcw-$(printf '%s' "$DIR" | sha1sum | cut -c1-12).lock"
+        flock -w 120 "$lock" "${TO[@]}" git -C "$DIR" "$@" 2>&1
+    else
+        run_git "$@"
+    fi
+}
+
+# Mode "branches": only list the branches of the repository (for the ALL / pattern setting).
+if [ "${GCW_MODE:-}" = "branches" ]; then
+    if [ -d "$REPO" ]; then
+        DIR="$REPO"
+        OUT=$(run_git rev-parse --git-dir) || fail "Not a git repository: $REPO"
+        OUT=$(run_git_serial fetch --quiet --no-tags origin) || fail "git fetch failed: $OUT"
+        LIST=$(git -C "$DIR" for-each-ref --format='%(refname)' refs/remotes/origin 2>/dev/null \
+            | sed 's#^refs/remotes/origin/##' | grep -v '^HEAD$')
+    else
+        OUT=$("${TO[@]}" git ls-remote --heads "$REPO" 2>&1) || fail "git ls-remote failed: $OUT"
+        LIST=$(printf '%s\n' "$OUT" | awk '{print $2}' | sed 's#^refs/heads/##')
+    fi
+    printf 'STATUS=ok\n'
+    printf '%s\n' "$LIST" | while IFS= read -r b; do
+        [ -n "$b" ] && printf 'B%s%s\n' "$US" "$b"
+    done
+    exit 0
+fi
+
 URL=""
 if [ -d "$REPO" ]; then
     # --- Local clone: fetch and compare against the remote-tracking branch ---
     DIR="$REPO"
     OUT=$(run_git rev-parse --git-dir) || fail "Not a git repository: $REPO"
     if [ -n "$BRANCH" ]; then
-        OUT=$(run_git fetch --quiet --no-tags origin) || fail "git fetch failed: $OUT"
+        OUT=$(run_git_serial fetch --quiet --no-tags origin) || fail "git fetch failed: $OUT"
         TIPREF="refs/remotes/origin/$BRANCH"
     else
-        OUT=$(run_git fetch --quiet --no-tags) || fail "git fetch failed: $OUT"
+        OUT=$(run_git_serial fetch --quiet --no-tags) || fail "git fetch failed: $OUT"
         TIPREF=$(run_git rev-parse --symbolic-full-name '@{upstream}') \
             || fail "The current branch has no upstream branch. Set a branch name in the widget settings."
     fi
