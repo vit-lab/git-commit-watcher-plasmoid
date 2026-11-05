@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Repository settings: the hint in the "Path or URL" field and the text below it now also show the HTTPS form
+  of a remote URL (`https://github.com/user/repo.git`).
+
 ## [1.1] - 2026-11-05
 
 ### Added

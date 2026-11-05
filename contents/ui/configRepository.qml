@@ -329,7 +329,7 @@ KCM.SimpleKCM {
                 QQC2.TextField {
                     id: pathField
                     Layout.fillWidth: true
-                    placeholderText: i18n("/path/to/clone  or  git@github.com:user/repo.git")
+                    placeholderText: i18n("/path/to/clone  or  git@github.com:user/repo.git  or  https://github.com/user/repo.git")
                     onTextEdited: page.setField("path", text)
                 }
                 QQC2.Button {
@@ -345,7 +345,7 @@ KCM.SimpleKCM {
                 wrapMode: Text.WordWrap
                 font: Kirigami.Theme.smallFont
                 opacity: 0.7
-                text: i18n("A local clone is fetched in place (nothing in your working tree is changed). A remote URL is watched through a small private cache, so no clone is needed.")
+                text: i18n("Either the path of a local clone, or a remote URL: SSH (git@github.com:user/repo.git) or HTTPS (https://github.com/user/repo.git; for a private repository also set a token file below). A local clone is fetched in place (nothing in your working tree is changed). A remote URL is watched through a small private cache, so no clone is needed.")
             }
 
             QQC2.TextField {
