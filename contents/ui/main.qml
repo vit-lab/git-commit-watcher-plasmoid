@@ -41,6 +41,7 @@ PlasmoidItem {
     property string diffKey: ""
     property var diffCache: ({})
     property var openMap: ({})           // running "open file" command -> true
+    property var notifyTargets: ({})     // running notify-send command -> {repoId, hash} to show on click
 
     readonly property bool unconfigured: repoList.length === 0
     readonly property int totalUnread: { root.rev; return sumUnread(); }
@@ -83,6 +84,8 @@ PlasmoidItem {
         bgDel: rgba(Kirigami.Theme.negativeTextColor, 0.16),
         bgHunk: rgba(Kirigami.Theme.highlightColor, 0.14),
         bgFile: rgba(Kirigami.Theme.textColor, 0.10),
+        bgBand: rgba(Kirigami.Theme.highlightColor, 0.38),
+        bgMsg: rgba(Kirigami.Theme.highlightColor, 0.10),
         buttonSpace: openButtonWidth + Kirigami.Units.smallSpacing      // room for the "Open File" buttons
     })
     readonly property int openButtonWidth: Kirigami.Units.gridUnit * 7
@@ -141,16 +144,25 @@ PlasmoidItem {
         return name ? name : bundledIcon(kind, light);
     }
 
-    Plasmoid.icon: totalUnread > 0 ? resolveIcon(cfg.iconNew, "new", lightText)
-                                   : resolveIcon(cfg.iconIdle, "idle", lightText)
+    // The panel icon: "muted" while notifications are muted (the unread badge is still shown),
+    // otherwise "new" or "idle".
+    readonly property string panelIcon: cfg.muted ? resolveIcon(cfg.iconMuted, "muted", lightText)
+                                       : totalUnread > 0 ? resolveIcon(cfg.iconNew, "new", lightText)
+                                                         : resolveIcon(cfg.iconIdle, "idle", lightText)
+
+    Plasmoid.icon: panelIcon
     Plasmoid.status: (cfg.hideWhenRead && totalUnread === 0)
                      ? PlasmaCore.Types.PassiveStatus
                      : PlasmaCore.Types.ActiveStatus
 
+    // With "pin" on, the popup stays open when another window gets the focus.
+    hideOnWindowDeactivate: !cfg.pin
+
     toolTipMainText: repoList.length === 1 ? headerTitle : i18n("Git Commit Watcher")
     toolTipSubText: {
         root.rev;
-        return buildTooltip();
+        var t = buildTooltip();
+        return cfg.muted ? i18n("Notifications are muted") + (t !== "" ? "\n" + t : "") : t;
     }
 
     Plasmoid.contextualActions: [
@@ -164,6 +176,13 @@ PlasmoidItem {
             icon.name: "checkmark"
             enabled: root.totalUnread > 0
             onTriggered: root.markAllRead("all")
+        },
+        PlasmaCore.Action {
+            text: i18n("Mute notifications")
+            icon.name: root.cfg.muted ? "notifications-disabled" : "notifications"
+            checkable: true
+            checked: root.cfg.muted
+            onTriggered: root.cfg.muted = !root.cfg.muted
         },
         PlasmaCore.Action {
             text: i18n("Unlock SSH keys…")
@@ -232,7 +251,18 @@ PlasmoidItem {
         id: notifier
         engine: "executable"
         connectedSources: []
-        onNewData: (sourceName, data) => disconnectSource(sourceName)
+        onNewData: (sourceName, data) => {
+            disconnectSource(sourceName);
+            var target = root.notifyTargets[sourceName];
+            if (target !== undefined) {
+                delete root.notifyTargets[sourceName];
+                // notify-send prints the name of the action when the notification was clicked.
+                var action = String(data["stdout"] || "").trim();
+                if (action === "default" || action === "open") {
+                    root.openFromNotification(target);
+                }
+            }
+        }
     }
 
     Timer {
@@ -736,17 +766,49 @@ PlasmoidItem {
         return s + c.subject;
     }
 
-    function send(title, body) {
-        notifier.connectSource(Helpers.notifyCommand({
+    // target: {repoId, hash} - what a click on the notification shows (hash "" = the commit list)
+    function send(title, body, target) {
+        var clickable = !!target && cfg.notifyClick;
+        var cmd = Helpers.notifyCommand({
             urgency: cfg.urgency,
             useDefaultTimeout: cfg.useDefaultTimeout,
             timeoutSec: cfg.timeoutSec,
-            icon: Helpers.urlToPath(resolveIcon(cfg.notifyIcon, "notify", lightText))
-        }, title, Helpers.esc(body)));
+            icon: Helpers.urlToPath(resolveIcon(cfg.notifyIcon, "notify", lightText)),
+            clickable: clickable,
+            actionLabel: target && target.hash ? i18n("Show changes") : i18n("Show commits")
+        }, title, Helpers.esc(body));
+        if (clickable) {
+            notifyTargets[cmd] = target;
+        }
+        notifier.connectSource(cmd);
+    }
+
+    // A click on a notification: open the popup and show the commit (or the list of commits).
+    function openFromNotification(t) {
+        if (!t || !repoById(t.repoId)) {
+            return;
+        }
+        currentTab = showAllTab ? t.repoId : "all";     // also closes an open diff
+        expanded = true;
+        if (!t.hash) {
+            return;
+        }
+        var cs = st(t.repoId).commits;
+        for (var i = 0; i < cs.length; ++i) {
+            if (cs[i].hash === t.hash) {
+                openDiff({
+                    repoId: t.repoId, repoName: nameOf(t.repoId), hash: cs[i].hash, short: cs[i].short,
+                    author: cs[i].author, subject: cs[i].subject, when: cs[i].when, ts: cs[i].ts, unread: false
+                });
+                return;
+            }
+        }
     }
 
     function notifyNew(r, fresh) {
-        if (!cfg.notifyEnabled) {
+        // Muted: no notification and no sound. The commit is still counted as unread, and it is
+        // not announced afterwards when the mute is switched off.
+        if (!cfg.notifyEnabled || cfg.muted) {
             return;
         }
         var list = fresh.list;                 // newest first
@@ -759,10 +821,10 @@ PlasmoidItem {
             // One notification per commit, oldest first.
             var shown = list.slice(0, max).reverse();
             for (var i = 0; i < shown.length; ++i) {
-                send(i18n("%1: new commit", name), fmt(shown[i]));
+                send(i18n("%1: new commit", name), fmt(shown[i]), { repoId: r.id, hash: shown[i].hash });
             }
             if (n > max) {
-                send(name, i18n("…and %1 more commits", n - max));
+                send(name, i18n("…and %1 more commits", n - max), { repoId: r.id, hash: "" });
             }
         } else if (cfg.notifyMode === 2 || (n === 1 && !fresh.overflow)) {
             // Only the latest commit.
@@ -770,7 +832,7 @@ PlasmoidItem {
             if (n > 1) {
                 body += "\n" + i18n("(+%1 more)", fresh.overflow ? (n - 1) + "+" : n - 1);
             }
-            send(i18n("%1: new commit", name), body);
+            send(i18n("%1: new commit", name), body, { repoId: r.id, hash: list[0].hash });
         } else {
             // One summary.
             var lines = [];
@@ -780,7 +842,7 @@ PlasmoidItem {
             if (n > max) {
                 lines.push(i18n("…and %1 more", n - max));
             }
-            send(i18n("%1: %2 new commits", name, count), lines.join("\n"));
+            send(i18n("%1: %2 new commits", name, count), lines.join("\n"), { repoId: r.id, hash: "" });
         }
 
         if (cfg.playSound) {
@@ -814,9 +876,7 @@ PlasmoidItem {
 
             Kirigami.Icon {
                 anchors.fill: parent
-                source: root.totalUnread > 0
-                        ? root.resolveIcon(root.cfg.iconNew, "new", Kirigami.Theme.textColor.hslLightness > 0.5)
-                        : root.resolveIcon(root.cfg.iconIdle, "idle", Kirigami.Theme.textColor.hslLightness > 0.5)
+                source: root.panelIcon
                 active: compact.containsMouse
             }
 
@@ -844,9 +904,68 @@ PlasmoidItem {
 
     fullRepresentation: PlasmaExtras.Representation {
         id: full
-        Layout.minimumWidth: Kirigami.Units.gridUnit * 28
-        Layout.minimumHeight: Kirigami.Units.gridUnit * 22
+
+        // The popup remembers one size for the commit list and another for the diff view. The
+        // size is the preferred size of this item; a resize by the user is saved after a short
+        // pause, but not while the popup is opening or switching between the two views.
+        readonly property bool inDiff: root.diffCommit !== null
+        readonly property int unit: Kirigami.Units.gridUnit
+        readonly property int wantedWidth: {
+            var v = inDiff ? root.cfg.diffWidth : root.cfg.listWidth;
+            return v > 0 ? v : unit * (inDiff ? 44 : 28);
+        }
+        readonly property int wantedHeight: {
+            var v = inDiff ? root.cfg.diffHeight : root.cfg.listHeight;
+            return v > 0 ? v : unit * (inDiff ? 32 : 22);
+        }
+        property bool settling: true
+
+        Layout.minimumWidth: unit * 20
+        Layout.minimumHeight: unit * 14
+        Layout.preferredWidth: wantedWidth
+        Layout.preferredHeight: wantedHeight
         collapseMarginsHint: true
+
+        function settle() {
+            settling = true;
+            sizeSaveTimer.stop();
+            settleTimer.restart();
+        }
+
+        onInDiffChanged: settle()
+        Component.onCompleted: settle()
+        Connections {
+            target: root
+            function onExpandedChanged() {
+                full.settle();
+            }
+        }
+        onWidthChanged: if (!settling) sizeSaveTimer.restart()
+        onHeightChanged: if (!settling) sizeSaveTimer.restart()
+
+        Timer {
+            id: settleTimer
+            interval: 800
+            onTriggered: full.settling = false
+        }
+        Timer {
+            id: sizeSaveTimer
+            interval: 600
+            onTriggered: {
+                if (full.settling || !root.expanded || full.width < full.unit * 10 || full.height < full.unit * 8) {
+                    return;
+                }
+                var w = Math.round(full.width);
+                var h = Math.round(full.height);
+                if (full.inDiff) {
+                    if (root.cfg.diffWidth !== w) root.cfg.diffWidth = w;
+                    if (root.cfg.diffHeight !== h) root.cfg.diffHeight = h;
+                } else {
+                    if (root.cfg.listWidth !== w) root.cfg.listWidth = w;
+                    if (root.cfg.listHeight !== h) root.cfg.listHeight = h;
+                }
+            }
+        }
 
         header: PlasmaExtras.PlasmoidHeading {
             RowLayout {
@@ -962,10 +1081,30 @@ PlasmoidItem {
                 }
                 PlasmaComponents.ToolButton {
                     visible: root.diffCommit === null
+                    icon.name: root.cfg.muted ? "notifications-disabled" : "notifications"
+                    display: PlasmaComponents.AbstractButton.IconOnly
+                    checkable: true
+                    checked: root.cfg.muted
+                    onToggled: root.cfg.muted = checked
+                    PlasmaComponents.ToolTip.text: root.cfg.muted ? i18n("Notifications are muted. Click to unmute.")
+                                                                  : i18n("Mute notifications")
+                    PlasmaComponents.ToolTip.visible: hovered
+                }
+                PlasmaComponents.ToolButton {
+                    visible: root.diffCommit === null
                     icon.name: "configure"
                     display: PlasmaComponents.AbstractButton.IconOnly
                     onClicked: root.openConfig()
                     PlasmaComponents.ToolTip.text: i18n("Configure…")
+                    PlasmaComponents.ToolTip.visible: hovered
+                }
+                PlasmaComponents.ToolButton {
+                    icon.name: "window-pin"
+                    display: PlasmaComponents.AbstractButton.IconOnly
+                    checkable: true
+                    checked: root.cfg.pin
+                    onToggled: root.cfg.pin = checked
+                    PlasmaComponents.ToolTip.text: i18n("Keep open")
                     PlasmaComponents.ToolTip.visible: hovered
                 }
             }

@@ -19,7 +19,7 @@ Security problems: see [SECURITY.md](SECURITY.md) and do not use public issues.
   - `./scripts/package.sh` builds `dist/git-commit-watcher-<version>.plasmoid`; to try it, remove the installed
     version (`kpackagetool6 -t Plasma/Applet -r local.gitcommitwatcher`), install the new file
     (`kpackagetool6 -t Plasma/Applet -i dist/git-commit-watcher-*.plasmoid`) and restart the shell
-    (`plasmashell --replace &`)
+    (`systemctl --user restart plasma-plasmashell.service`)
 - The widget must stay **read-only** for repositories: no commits, pushes or working-tree changes.
 - Add a line to the *Unreleased* section of [CHANGELOG.md](CHANGELOG.md).
 

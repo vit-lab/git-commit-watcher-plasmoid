@@ -150,7 +150,8 @@ function diffHeaderPath(l) {
 }
 
 // Parse the output of diff.sh into display lines {t: type, s: text}.
-// Types: head (commit header/message/stat), file, meta, hunk, add, del, ctx.
+// Types: head (commit header/message/stat), file, meta, hunk, add, del, ctx, and band: a section
+// title added by this parser (k = hdr | msg | stat | diff), shown as a colored bar.
 function parseDiff(stdout, stderr, exitCode) {
     var res = { ok: false, msg: "", lines: [], truncated: false };
     var text = String(stdout || "");
@@ -171,18 +172,38 @@ function parseDiff(stdout, stderr, exitCode) {
     }
     var mode = "head";      // head -> meta (file header) -> body (hunks)
     var cur = null;         // the "file" line being described by the meta lines that follow it
+    var hdrPart = true;     // still inside the commit / Author / Date lines
+    var statBand = null;
+    var nFiles = 0;
+    res.lines.push({ t: "band", k: "hdr", s: "COMMIT" });
     for (var i = 0; i < raw.length; ++i) {
         // Control characters (e.g. the CR of CRLF files) would change the text layout.
         var l = raw[i].replace(/[\u0000-\u0008\u000b-\u001f\u2028\u2029]/g, "");
         var t;
         var mm;
         if (l.indexOf("diff --git ") === 0 || l.indexOf("diff --cc ") === 0 || l.indexOf("diff --combined ") === 0) {
+            if (mode === "head") {
+                res.lines.push({ t: "band", k: "diff", s: "DIFF" });
+            }
             mode = "meta";
             t = "file";
+            nFiles++;
             cur = { t: t, s: l, path: diffHeaderPath(l), status: "modified" };
             res.lines.push(cur);
             continue;
         } else if (mode === "head") {
+            if (hdrPart && l === "") {
+                // End of the header: the commit message follows.
+                hdrPart = false;
+                res.lines.push({ t: "band", k: "msg", s: "MESSAGE" });
+                continue;
+            }
+            if (!hdrPart && l === "---") {
+                // The separator between the message and the "git diff --stat" part.
+                statBand = { t: "band", k: "stat", s: "CHANGED FILES" };
+                res.lines.push(statBand);
+                continue;
+            }
             t = "head";
         } else if (l.indexOf("@@") === 0) {
             mode = "body";
@@ -209,6 +230,9 @@ function parseDiff(stdout, stderr, exitCode) {
             t = "ctx";
         }
         res.lines.push({ t: t, s: l });
+    }
+    if (statBand && nFiles > 0) {
+        statBand.s = "CHANGED FILES (" + nFiles + ")";
     }
     res.ok = true;
     return res;
@@ -256,7 +280,7 @@ function diffFileMarks(lines) {
 }
 
 // Turns the parsed diff lines (see parseDiff) into rich text for a read-only TextArea, so that
-// it can be selected and copied. pal: { text, muted, pos, neg, link, warn, bgAdd, bgDel, bgHunk, bgFile }
+// it can be selected and copied. pal: { text, muted, pos, neg, link, warn, bgAdd, bgDel, bgHunk, bgFile, bgBand, bgMsg }
 // (CSS colors). One paragraph per line; the text of every line is kept exactly as git printed it.
 function diffToHtml(lines, pal) {
     var out = [];
@@ -269,17 +293,34 @@ function diffToHtml(lines, pal) {
         var bg = "";
         var body = "";
         var rightMargin = "";
+        var topMargin = "";
         var m;
 
-        if (s === "" && t !== "add" && t !== "del") {
+        if (t === "band") {
+            // Section title: a colored bar across the whole width.
+            if (lines[i].k === "msg") {
+                phase = "msg";
+            } else if (lines[i].k === "stat") {
+                phase = "stat";
+            }
+            bg = pal.bgBand || pal.bgFile;
+            body = colored(pal.text, s, ";font-weight:bold");
+            if (lines[i].k !== "hdr") {
+                topMargin = "margin-top:12px;";
+            }
+        } else if (s === "" && t !== "add" && t !== "del") {
             if (t === "head" && phase === "hdr") {
                 phase = "msg";
+            }
+            if (t === "head" && phase === "msg") {
+                bg = pal.bgMsg || "";
             }
             body = " ";
         } else if (t === "head") {
             if (phase === "hdr") {
+                bg = pal.bgFile;
                 if ((m = s.match(/^(commit )([0-9a-fA-F]+)(.*)$/))) {
-                    body = colored(pal.muted, m[1]) + colored(pal.warn, m[2], ";font-weight:bold")
+                    body = colored(pal.muted, m[1]) + colored(pal.warn, m[2], ";font-weight:bold;font-size:larger")
                          + (m[3] ? colored(pal.muted, m[3]) : "");
                 } else if ((m = s.match(/^(Author:\s*)(.*?)(\s*<[^>]*>)?\s*$/))) {
                     body = colored(pal.muted, m[1]) + colored(pal.link, m[2], ";font-weight:bold")
@@ -290,14 +331,11 @@ function diffToHtml(lines, pal) {
                     color = pal.muted;
                     body = htmlEscape(s);
                 }
-            } else if (phase === "msg" && s === "---") {
-                phase = "stat";
-                color = pal.muted;
-                body = htmlEscape(s);
             } else if (phase === "msg") {
+                bg = pal.bgMsg || "";
                 if (!subjectDone && s.trim() !== "") {
                     subjectDone = true;
-                    body = colored(pal.text, s, ";font-weight:bold");
+                    body = colored(pal.text, s, ";font-weight:bold;font-size:larger");
                 } else {
                     body = htmlEscape(s);
                 }
@@ -337,7 +375,7 @@ function diffToHtml(lines, pal) {
             body = htmlEscape(s);
         }
 
-        out.push('<p style="margin:0;' + rightMargin + 'white-space:pre-wrap;color:' + color
+        out.push('<p style="margin:0;' + topMargin + rightMargin + 'white-space:pre-wrap;color:' + color
                  + (bg ? ";background-color:" + bg : "") + '">' + body + "</p>");
     }
     return out.join("");
@@ -402,15 +440,40 @@ function notifyCommand(o, title, body) {
     if (!o.useDefaultTimeout) {
         cmd += " -t " + (Math.max(0, o.timeoutSec | 0) * 1000);
     }
-    cmd += " -- " + q(title) + " " + q(body);
-    return cmd + uniq();
+    var tail = " -- " + q(title) + " " + q(body);
+    if (o.clickable) {
+        // Clicking the notification (or its "Show changes" button) makes notify-send print the
+        // name of the action and exit. That needs notify-send 0.8 or newer (libnotify); with an
+        // older one the notification is sent without actions.
+        var actions = " -A " + q("default=" + (o.actionLabel || "Show changes"))
+                    + " -A " + q("open=" + (o.actionLabel || "Show changes"));
+        return "if notify-send --help 2>&1 | grep -q -e '--action'; then " + cmd + actions + tail
+            + "; else " + cmd + tail + "; fi" + uniq();
+    }
+    return cmd + tail + uniq();
 }
 
+// Plays a notification sound. name: a sound-theme name (e.g. "message-new-instant") or the
+// path of a sound file (absolute, or starting with "~/").
 function soundCommand(name) {
-    var n = name || "message-new-instant";
+    var n = String(name || "").trim() || "message-new-instant";
+    if (n.charAt(0) === "/" || n.indexOf("~/") === 0) {
+        var p = n.charAt(0) === "~" ? '"$HOME"' + q(n.substring(1)) : q(n);
+        return "(canberra-gtk-play -f " + p + " 2>/dev/null"
+            + " || pw-play " + p + " 2>/dev/null"
+            + "; true)" + uniq();
+    }
     return "(canberra-gtk-play -i " + q(n) + " 2>/dev/null"
-        + " || pw-play " + q("/usr/share/sounds/freedesktop/stereo/" + n + ".oga") + " 2>/dev/null"
+        + " || { f=$(find /usr/share/sounds -name " + q(n + ".*") + " 2>/dev/null | head -n 1);"
+        + " [ -n \"$f\" ] && pw-play \"$f\" 2>/dev/null; }"
         + "; true)" + uniq();
+}
+
+// Shell command that prints the names of the sounds installed in the sound themes, one per line.
+function listSoundsCommand() {
+    return "find /usr/share/sounds \"$HOME/.local/share/sounds\" -type f"
+        + " \\( -name '*.oga' -o -name '*.ogg' -o -name '*.wav' \\) 2>/dev/null"
+        + " | sed 's#.*/##; s#\\.[^.]*$##' | sort -u" + uniq();
 }
 
 // Parse the output of check.sh.

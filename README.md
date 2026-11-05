@@ -11,8 +11,11 @@ warranty.
 - Monitoring of several repositories, either local clones or remote SSH/HTTPS URLs, each with its own branch,
   SSH key and token file.
 - Notifications as a single summary, one per commit, or only for the latest commit. Urgency, timeout, icon and
-  sound are configurable, and the author and short hash can be shown or hidden.
-- Diff view for every commit, with colored additions, removals and hunks. The text can be selected and copied.
+  sound are configurable, and the author and short hash can be shown or hidden. The sound can be a system
+  sound or your own file, with a preview button.
+- Clicking a notification opens the popup with the diff of that commit.
+- Diff view for every commit, with a header that separates the commit data, the message, the list of changed
+  files and the diff, and with colored additions, removals and hunks. The text can be selected and copied.
 - An "Open File" button next to each changed file in the diff. It opens the file as it is in that commit, from
   a read-only copy.
 - A "Copy SHA" button and a context menu on commits. Double-clicking a commit opens it in the browser.
@@ -21,7 +24,12 @@ warranty.
 - HTTPS token files for private repositories.
 - An unread counter on the icon, a "mark as read" action, and optional hiding in the system tray when nothing
   is new.
-- Bundled icons in light and dark variants, two icon sizes, and an icon chooser for custom icons.
+- A mute switch that turns off notifications and sounds while the widget keeps checking and counting. The panel
+  icon shows a red crossed-out bell badge while muted.
+- A pin button that keeps the popup open. The popup size is remembered separately for the commit list and
+  the diff view.
+- Bundled icons (idle, new commits, muted) in light and dark variants, two icon sizes, and an icon chooser for
+  custom icons.
 - Configuration through the settings window.
 
 The widget only reads from repositories. It does not commit, push or change the working tree.
@@ -30,7 +38,8 @@ The widget only reads from repositories. It does not commit, push or change the 
 
 - KDE Plasma 6.0 or newer
 - git
-- notify-send (package `libnotify`)
+- notify-send (package `libnotify`; version 0.8 or newer is needed for "click a notification to show the
+  changes")
 - OpenSSH (`ssh`, `ssh-add`, `ssh-agent`, `ssh-keygen`) for SSH remotes
 - kdialog, ksshaskpass or zenity for the passphrase dialog (only for keys with a passphrase)
 - canberra-gtk-play or pw-play for notification sounds (optional)
@@ -42,26 +51,27 @@ The widget has been tested on Arch Linux with KDE Plasma 6 on Wayland.
 
 ### From the release package
 
-Download `git-commit-watcher-1.0.plasmoid` from the
+Download `git-commit-watcher-1.1.plasmoid` from the
 [latest release](https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/latest). Use the file listed
 under Assets; the automatic "Source code" archives are not installable packages.
 
 ```sh
-curl -LO https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/download/v1.0/git-commit-watcher-1.0.plasmoid
-kpackagetool6 -t Plasma/Applet -i git-commit-watcher-1.0.plasmoid
+curl -LO https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/download/v1.1/git-commit-watcher-1.1.plasmoid
+kpackagetool6 -t Plasma/Applet -i git-commit-watcher-1.1.plasmoid
 ```
 
 The package can also be installed from the widget explorer: right-click the panel or desktop, open
 "Add or Manage Widgets", then "Get New Widgets" and "Install Widget From Local File".
 
 Afterwards, add "Git Commit Watcher" to a panel or the desktop. If the widget is not listed, restart the
-shell with `plasmashell --replace &`.
+shell with `systemctl --user restart plasma-plasmashell.service`. (`plasmashell --replace &` also works,
+but it keeps the shell attached to the terminal, so closing the terminal ends the desktop session.)
 
 The installed version and the checksum of the downloaded file can be checked with:
 
 ```sh
 grep Version ~/.local/share/plasma/plasmoids/local.gitcommitwatcher/metadata.json
-sha256sum git-commit-watcher-1.0.plasmoid
+sha256sum git-commit-watcher-1.1.plasmoid
 ```
 
 If the release notes list a SHA-256 checksum, it should match the output of the second command.
@@ -86,7 +96,7 @@ Remove the installed version, install the new package and restart the shell:
 kpackagetool6 -t Plasma/Applet -r local.gitcommitwatcher
 kpackagetool6 -t Plasma/Applet -i git-commit-watcher-<new version>.plasmoid
 grep Version ~/.local/share/plasma/plasmoids/local.gitcommitwatcher/metadata.json
-plasmashell --replace &
+systemctl --user restart plasma-plasmashell.service
 ```
 
 `kpackagetool6 -u` failed with "Plugin is not installed" when used with a `.plasmoid` file, so removal and
@@ -109,7 +119,8 @@ The second command deletes the widget's cache and is optional.
 3. Enter the branch to watch. For a local clone the field can stay empty, in which case the upstream branch is
    used.
 4. If the remote requires authentication, select an SSH key or an HTTPS token file and use "Test connection".
-5. Set the check interval (5 minutes by default) and the notification options.
+5. Set the check interval (5 minutes by default) and the notification options. The sound can be chosen from
+   the installed system sounds or from a file ("Sound" section of the Notifications page).
 
 ### Authentication
 
@@ -128,18 +139,27 @@ Passphrases and tokens are never stored by the widget. Only the paths of the key
 - Clicking a commit shows its diff. The arrow at the top returns to the list.
 - Double-clicking a commit opens it in the browser. Links of the form `<repository>/commit/<hash>` are used,
   which works for GitHub, GitLab and Gitea.
+- Clicking a notification opens the popup. For a notification about one commit, the diff of that commit is
+  shown; for a summary, the commit list of the repository. This can be switched off in the Notifications
+  settings.
 - The context menu of a commit has "Show the changes", "Copy SHA" and "Open in the browser".
 - In the diff, text can be copied with Ctrl+C, the context menu or the copy button in the header. "Copy SHA"
   copies the full commit hash. "Open File" is shown on the header line of each changed file, except for
   deleted files.
 - A middle click on the panel icon runs a check immediately. Its context menu has "Check now",
-  "Mark all as read" and "Unlock SSH keys".
+  "Mark all as read", "Mute notifications" and "Unlock SSH keys".
+- The pin button in the popup header keeps the popup open when another window is focused.
+- The bell button in the header (also in the context menu and in the Notifications settings) mutes
+  notifications and sounds. Checking and the unread counter continue. Commits that arrive while muted are
+  counted as unread but are not announced again after unmuting.
+- The popup can be resized by dragging its edge. The size is remembered separately for the commit list and
+  for the diff view.
 
 ## Stored data
 
 | Data | Location |
 | --- | --- |
-| Settings: repository list, paths of key and token files, last seen commits | Plasma configuration, `~/.config/plasma-org.kde.plasma.desktop-appletsrc` |
+| Settings: repository list, paths of key and token files, last seen commits, pin and mute state, popup sizes | Plasma configuration, `~/.config/plasma-org.kde.plasma.desktop-appletsrc` |
 | Shallow copies of repositories watched by URL, and read-only copies created by "Open File" | `~/.cache/gitcommitwatcher/` (the "Open File" copies are deleted after a week) |
 | Socket of the private `ssh-agent` and the passphrase dialog launcher | `$XDG_RUNTIME_DIR` (`gcw-agent-<uid>.sock`, `gcw-askpass-<uid>.sh`) |
 
@@ -153,6 +173,8 @@ Passphrases and tokens are never stored by the widget. Only the paths of the key
 - "The current branch has no upstream branch": enter the branch name in the repository settings.
 - "Commit ... is not available locally": the diff needs the commit in the local copy. Wait for the next check
   or use "Check now".
+- Clicking a notification does nothing: `notify-send --version` must be 0.8 or newer, and the notification
+  server must support actions (Plasma does). The option "Clicking a notification shows the changes" must be on.
 - No notifications: check that `libnotify` is installed and Do Not Disturb is off, and use "Send test
   notification" in the settings.
 - The old version still appears after reinstalling: the old package was probably installed again. Check the
