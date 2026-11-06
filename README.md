@@ -6,6 +6,29 @@ when new commits appear and displays the changes of each commit in the widget po
 Read [SECURITY.md](SECURITY.md) before using SSH keys or tokens with the widget. The software comes with no
 warranty.
 
+## Screenshots
+
+The commit list, with the branch switcher of a repository that is watched on several branches:
+
+![The commit list with the branch switcher](docs/screenshots/01-commit-list.png)
+
+The diff view of a commit, with colored section bars, per-file statistics and "Open File" buttons:
+
+![The diff view of a commit](docs/screenshots/02-diff-view.png)
+
+A desktop notification about a new commit (click it to open the changes), and the panel icon with the
+unread counter:
+
+![A notification about a new commit](docs/screenshots/03-notification.png)
+
+The settings of a repository, here with all branches watched (ALL):
+
+![The repository settings](docs/screenshots/04-settings-repositories.png)
+
+The context menu of the widget:
+
+![The context menu](docs/screenshots/05-context-menu.png)
+
 ## Features
 
 - Monitoring of several repositories, either local clones or remote SSH/HTTPS URLs, each with its own branch,

@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Documentation: screenshots in the README (`docs/screenshots/`).
 - Documentation: the widget is listed on the KDE Store (<https://www.opendesktop.org/p/2381252>); the README
   has an installation section for it.
 
