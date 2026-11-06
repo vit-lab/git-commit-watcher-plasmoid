@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Documentation: the widget is listed on the KDE Store (<https://www.opendesktop.org/p/2381252>); the README
+  has an installation section for it.
+
 ## [1.2] - 2026-11-06
 
 ### Added
