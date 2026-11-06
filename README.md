@@ -9,7 +9,9 @@ warranty.
 ## Features
 
 - Monitoring of several repositories, either local clones or remote SSH/HTTPS URLs, each with its own branch,
-  SSH key and token file.
+  SSH key and token file. One repository can be watched on several branches (`main, dev`), on all of its
+  branches (`ALL`) or on those matching a pattern (`release/*`) without adding it twice.
+- Text size of the commit list and of the diff view can be changed with Ctrl + mouse wheel (remembered).
 - Notifications as a single summary, one per commit, or only for the latest commit. Urgency, timeout, icon and
   sound are configurable, and the author and short hash can be shown or hidden. The sound can be a system
   sound or your own file, with a preview button.
@@ -51,13 +53,13 @@ The widget has been tested on Arch Linux with KDE Plasma 6 on Wayland.
 
 ### From the release package
 
-Download `git-commit-watcher-1.1.plasmoid` from the
+Download `git-commit-watcher-1.2.plasmoid` from the
 [latest release](https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/latest). Use the file listed
 under Assets; the automatic "Source code" archives are not installable packages.
 
 ```sh
-curl -LO https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/download/v1.1/git-commit-watcher-1.1.plasmoid
-kpackagetool6 -t Plasma/Applet -i git-commit-watcher-1.1.plasmoid
+curl -LO https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/download/v1.2/git-commit-watcher-1.2.plasmoid
+kpackagetool6 -t Plasma/Applet -i git-commit-watcher-1.2.plasmoid
 ```
 
 The package can also be installed from the widget explorer: right-click the panel or desktop, open
@@ -71,7 +73,7 @@ The installed version and the checksum of the downloaded file can be checked wit
 
 ```sh
 grep Version ~/.local/share/plasma/plasmoids/local.gitcommitwatcher/metadata.json
-sha256sum git-commit-watcher-1.1.plasmoid
+sha256sum git-commit-watcher-1.2.plasmoid
 ```
 
 If the release notes list a SHA-256 checksum, it should match the output of the second command.
@@ -117,7 +119,15 @@ The second command deletes the widget's cache and is optional.
 2. Add a repository: the path of a local clone (for example `~/src/project`) or a remote URL
    (`git@github.com:user/project.git`, `https://github.com/user/project.git`).
 3. Enter the branch to watch. For a local clone the field can stay empty, in which case the upstream branch is
-   used.
+   used. To watch several branches of the same repository, list them separated by commas or spaces
+   (`main, dev`), tick "Watch all branches (ALL)" (or type `ALL`) to watch every branch, or use a pattern
+   such as `release/*` (also together with listed branches: `main, release/*`). The branches are found
+   automatically and re-checked at every check, so new branches are picked up (at most 30 branches are taken
+   for ALL or a pattern); a new branch is not announced itself, only its later commits. Each branch is checked
+   separately. In the popup the repository selector lists repositories, and below it a branch switcher
+   ("All branches", `main`, `dev`) appears for a repository with several branches. A commit that is on more
+   than one watched branch (after a merge, for example) is announced and counted once, and is listed once in
+   "All repositories" with all its branches.
 4. If the remote requires authentication, select an SSH key or an HTTPS token file and use "Test connection".
 5. Set the check interval (5 minutes by default) and the notification options. The sound can be chosen from
    the installed system sounds or from a file ("Sound" section of the Notifications page).

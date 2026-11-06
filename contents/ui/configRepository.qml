@@ -39,7 +39,10 @@ KCM.SimpleKCM {
 
     // Connection test
     property bool testBusy: false
-    property string testCmd: ""
+    property var testCmds: ({})           // running test command -> branch ("" = default)
+    property var testResults: ({})        // branch -> {ok, text}
+    property int testPending: 0
+    property string listCmd: ""           // running branch-listing test (ALL / pattern)
     property bool testOk: false
     property string testText: ""
 
@@ -124,6 +127,10 @@ KCM.SimpleKCM {
         curLabel = "";
         agentMsg = "";
         testText = "";
+        testCmds = ({});
+        listCmd = "";
+        testBusy = false;
+        testPending = 0;
         keyState = "";
         if (i < 0) {
             return;
@@ -212,18 +219,66 @@ KCM.SimpleKCM {
         connectedSources: []
         onNewData: (sourceName, data) => {
             disconnectSource(sourceName);
-            if (sourceName !== page.testCmd) {
+            if (sourceName === page.listCmd) {
+                page.listCmd = "";
+                page.testBusy = false;
+                var lr = Helpers.parseBranches(data["stdout"], data["stderr"], data["exit code"]);
+                page.testOk = lr.ok;
+                if (!lr.ok) {
+                    page.testText = lr.msg;
+                    return;
+                }
+                var shown = Helpers.resolveBranches(branchField.text, lr.branches);
+                if (shown.length === 0) {
+                    page.testOk = false;
+                    page.testText = i18n("The repository is reachable (%1 branches), but none of them matches.", lr.branches.length);
+                } else {
+                    page.testText = i18n("Success. %1 branches will be watched: %2", shown.length, shown.join(", "));
+                    if (lr.branches.length > shown.length && Helpers.hasWildcard(branchField.text)) {
+                        page.testText += "\n" + i18n("(The repository has %1 branches; at most %2 are taken for ALL or a pattern.)", lr.branches.length, Helpers.MAX_AUTO_BRANCHES);
+                    }
+                }
+                return;
+            }
+            if (!page.testCmds.hasOwnProperty(sourceName)) {
+                return;                 // an old test, for another repository
+            }
+            var br = page.testCmds[sourceName];
+            delete page.testCmds[sourceName];
+            var r = Helpers.parseOutput(data["stdout"], data["stderr"], data["exit code"]);
+            var text;
+            if (r.ok) {
+                var c = r.commits.length > 0 ? r.commits[0] : null;
+                text = c ? (c.short + " – " + c.author + ": " + c.subject) : r.tip;
+            } else {
+                text = r.msg;
+            }
+            page.testResults[br] = { ok: r.ok, text: text };
+            if (--page.testPending > 0) {
                 return;
             }
             page.testBusy = false;
-            var r = Helpers.parseOutput(data["stdout"], data["stderr"], data["exit code"]);
-            page.testOk = r.ok;
-            if (r.ok) {
-                var c = r.commits.length > 0 ? r.commits[0] : null;
-                page.testText = i18n("Success. Latest commit: %1", c ? (c.short + " – " + c.author + ": " + c.subject) : r.tip);
-            } else {
-                page.testText = r.msg;
+            // One branch: as before. Several branches: one line per branch.
+            var names = Object.keys(page.testResults);
+            var allOk = true;
+            var lines = [];
+            for (var i = 0; i < names.length; ++i) {
+                allOk = allOk && page.testResults[names[i]].ok;
             }
+            if (names.length === 1) {
+                var one = page.testResults[names[0]];
+                page.testText = one.ok ? i18n("Success. Latest commit: %1", one.text) : one.text;
+            } else {
+                var order = Helpers.splitBranches(branchField.text);
+                for (var k = 0; k < order.length; ++k) {
+                    var t = page.testResults[order[k]];
+                    if (t) {
+                        lines.push((t.ok ? "✓ " : "✗ ") + order[k] + ": " + t.text);
+                    }
+                }
+                page.testText = lines.join("\n");
+            }
+            page.testOk = allOk;
         }
     }
 
@@ -329,7 +384,7 @@ KCM.SimpleKCM {
                 QQC2.TextField {
                     id: pathField
                     Layout.fillWidth: true
-                    placeholderText: i18n("/path/to/clone  or  git@github.com:user/repo.git")
+                    placeholderText: i18n("/path/to/clone  or  git@github.com:user/repo.git  or  https://github.com/user/repo.git")
                     onTextEdited: page.setField("path", text)
                 }
                 QQC2.Button {
@@ -345,7 +400,7 @@ KCM.SimpleKCM {
                 wrapMode: Text.WordWrap
                 font: Kirigami.Theme.smallFont
                 opacity: 0.7
-                text: i18n("A local clone is fetched in place (nothing in your working tree is changed). A remote URL is watched through a small private cache, so no clone is needed.")
+                text: i18n("Either the path of a local clone, or a remote URL: SSH (git@github.com:user/repo.git) or HTTPS (https://github.com/user/repo.git; for a private repository also set a token file below). A local clone is fetched in place (nothing in your working tree is changed). A remote URL is watched through a small private cache, so no clone is needed.")
             }
 
             QQC2.TextField {
@@ -353,7 +408,34 @@ KCM.SimpleKCM {
                 Kirigami.FormData.label: i18n("Branch:")
                 Layout.fillWidth: true
                 placeholderText: i18n("empty = upstream branch of the clone / remote HEAD")
+                QQC2.ToolTip.text: i18n("One branch, several branches separated by commas or spaces (main, dev), a pattern (release/*), or ALL")
+                QQC2.ToolTip.visible: hovered
+                QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
                 onTextEdited: page.setField("branch", text)
+            }
+
+            QQC2.CheckBox {
+                id: allBranchesCheck
+                text: i18n("Watch all branches (ALL)")
+                onToggled: {
+                    branchField.text = checked ? "ALL" : "";
+                    page.setField("branch", branchField.text);
+                }
+            }
+            // Keeps the check box in step with the text of the field (typing ALL, selecting another repository).
+            Binding {
+                target: allBranchesCheck
+                property: "checked"
+                value: branchField.text.trim().toLowerCase() === "all"
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                Layout.maximumWidth: Kirigami.Units.gridUnit * 34
+                wrapMode: Text.WordWrap
+                font: Kirigami.Theme.smallFont
+                opacity: 0.7
+                text: i18n("Several branches: list them separated by commas or spaces (main, dev). ALL watches every branch of the repository, and a pattern such as release/* every branch that matches (also together with listed ones: main, release/*); at most 30 such branches are taken, and new branches are found automatically. A repository with several branches gets a branch switcher in the popup. A commit that is on more than one of the branches is announced and counted once. A branch that appears later is not announced itself, only its new commits.")
             }
 
             Item {
@@ -460,14 +542,35 @@ KCM.SimpleKCM {
                     onClicked: {
                         page.testBusy = true;
                         page.testText = "";
-                        page.testCmd = Helpers.checkCommand(page.scriptPath, {
-                            repo: pathField.text,
-                            branch: branchField.text,
-                            key: keyField.text,
-                            tokenFile: tokenField.text,
-                            limit: 1
-                        });
-                        tester.connectSource(page.testCmd);
+                        page.testResults = ({});
+                        if (Helpers.hasWildcard(branchField.text)) {
+                            // ALL or a pattern: list the branches of the repository and show which are watched.
+                            page.listCmd = Helpers.branchesCommand(page.scriptPath, {
+                                repo: pathField.text, key: keyField.text, tokenFile: tokenField.text
+                            });
+                            tester.connectSource(page.listCmd);
+                            return;
+                        }
+                        // Every listed branch is tested; no branch = the default one.
+                        var branches = Helpers.splitBranches(branchField.text);
+                        if (branches.length === 0) {
+                            branches = [""];
+                        }
+                        var cmds = ({});
+                        for (var i = 0; i < branches.length; ++i) {
+                            cmds[Helpers.checkCommand(page.scriptPath, {
+                                repo: pathField.text,
+                                branch: branches[i],
+                                key: keyField.text,
+                                tokenFile: tokenField.text,
+                                limit: 1
+                            })] = branches[i];
+                        }
+                        page.testCmds = cmds;
+                        page.testPending = branches.length;
+                        for (var c in cmds) {
+                            tester.connectSource(c);
+                        }
                     }
                 }
             }

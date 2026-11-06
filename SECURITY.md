@@ -19,7 +19,8 @@ Only the latest release receives fixes.
 
 | Version | Supported |
 | --- | --- |
-| 1.1 (latest) | yes |
+| 1.2 (latest) | yes |
+| 1.1 | no |
 | 1.0 | no |
 
 ## Reporting a vulnerability

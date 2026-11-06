@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.2] - 2026-11-06
+
+### Added
+
+- Several branches per repository: list them in the "Branch" field separated by commas or spaces
+  (`main, dev`). Every branch is checked on its own (own unread counter, "Test connection" tests each of
+  them), without adding the repository twice. A commit that is on several
+  watched branches is announced once, counted once and shown once. When the chosen repository has
+  several branches, a branch switcher ("All branches", "main", "dev", each with its unread count) appears under
+  the header; the repository selector at the top lists repositories only. The list shows which branches a
+  commit is on. Existing single-branch settings keep working unchanged. Several branches of one local clone are
+  fetched one after another (`flock`).
+- ALL option for the branch setting: a check box "Watch all branches (ALL)" (or `ALL` typed in the field) watches
+  every branch of the repository; patterns such as `release/*` watch the branches that match, also together
+  with listed ones (`main, release/*`). The branches are looked up at every check (`git ls-remote` for a
+  remote URL, the fetched remote-tracking branches for a local clone) and remembered, so new branches are
+  picked up and deleted ones disappear; at most 30 branches are taken. "Test connection" shows which branches
+  will be watched.
+- Ctrl + mouse wheel changes the text size, separately in the commit list and in the diff view (10 % per
+  step, 50-300 %, remembered). A plain wheel still scrolls. The footer shows the hint, and the current size
+  with a reset button when it is not 100 %.
+
+### Changed
+
+- The popup footer is now also shown in the diff view (with the text-size hint).
+- Footer: "Watching N repositories" counted branches as repositories; it now says "Watching N branches" for
+  one repository with several branches, or "Watching N repositories (M branches)".
+- Repository settings: the hint in the "Path or URL" field and the text below it now also show the HTTPS form
+  of a remote URL (`https://github.com/user/repo.git`).
+
 ## [1.1] - 2026-11-05
 
 ### Added
@@ -72,6 +102,7 @@ First public release.
   Local File…*), and `scripts/package.sh` to build it from the source.
 - Documentation: `README.md`, `SECURITY.md`, this changelog and issue templates.
 
-[Unreleased]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.1...HEAD
+[Unreleased]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.2...HEAD
+[1.2]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.1...v1.2
 [1.1]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.0...v1.1
 [1.0]: https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/tag/v1.0
