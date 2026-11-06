@@ -51,6 +51,12 @@ The widget has been tested on Arch Linux with KDE Plasma 6 on Wayland.
 
 ## Installation
 
+### From the KDE Store
+
+Git Commit Watcher is on the [KDE Store](https://www.opendesktop.org/p/2381252). In Plasma, right-click the
+panel or desktop, choose "Add or Manage Widgets", then "Get New Widgets" and "Download New Plasma Widgets", and
+search for "Git Commit Watcher". The store page also offers the `.plasmoid` file for download.
+
 ### From the release package
 
 Download `git-commit-watcher-1.2.plasmoid` from the
