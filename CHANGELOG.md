@@ -22,9 +22,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   remote URL, the fetched remote-tracking branches for a local clone) and remembered, so new branches are
   picked up and deleted ones disappear; at most 30 branches are taken. "Test connection" shows which branches
   will be watched.
+- Ctrl + mouse wheel changes the text size, separately in the commit list and in the diff view (10 % per
+  step, 50-300 %, remembered). A plain wheel still scrolls. The footer shows the hint, and the current size
+  with a reset button when it is not 100 %.
 
 ### Changed
 
+- The popup footer is now also shown in the diff view (with the text-size hint).
+- Footer: "Watching N repositories" counted branches as repositories; it now says "Watching N branches" for
+  one repository with several branches, or "Watching N repositories (M branches)".
 - Repository settings: the hint in the "Path or URL" field and the text below it now also show the HTTPS form
   of a remote URL (`https://github.com/user/repo.git`).
 

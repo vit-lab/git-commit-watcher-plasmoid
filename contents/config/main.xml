@@ -98,6 +98,17 @@
       <default>false</default>
     </entry>
     <!-- Popup sizes in pixels, remembered separately for the commit list and the diff view (0 = default) -->
+    <!-- Text size in percent (Ctrl + mouse wheel in the popup), separately for the commit list and the diff view -->
+    <entry name="listTextScale" type="Int">
+      <default>100</default>
+      <min>50</min>
+      <max>300</max>
+    </entry>
+    <entry name="diffTextScale" type="Int">
+      <default>100</default>
+      <min>50</min>
+      <max>300</max>
+    </entry>
     <entry name="listWidth" type="Int">
       <default>0</default>
       <min>0</min>

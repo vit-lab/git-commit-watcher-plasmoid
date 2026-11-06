@@ -14,7 +14,7 @@
         "Id": "local.gitcommitwatcher",
         "License": "GPL-3.0+",
         "Name": "Git Commit Watcher",
-        "Version": "1.2-dev.4",
+        "Version": "1.2-dev.7",
         "Website": "https://github.com/vit-lab/git-commit-watcher-plasmoid"
     },
     "X-Plasma-API-Minimum-Version": "6.0"

@@ -11,6 +11,7 @@ warranty.
 - Monitoring of several repositories, either local clones or remote SSH/HTTPS URLs, each with its own branch,
   SSH key and token file. One repository can be watched on several branches (`main, dev`), on all of its
   branches (`ALL`) or on those matching a pattern (`release/*`) without adding it twice.
+- Text size of the commit list and of the diff view can be changed with Ctrl + mouse wheel (remembered).
 - Notifications as a single summary, one per commit, or only for the latest commit. Urgency, timeout, icon and
   sound are configurable, and the author and short hash can be shown or hidden. The sound can be a system
   sound or your own file, with a preview button.

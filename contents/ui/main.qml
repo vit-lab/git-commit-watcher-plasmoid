@@ -111,7 +111,39 @@ PlasmoidItem {
         bgMsg: rgba(Kirigami.Theme.highlightColor, 0.10),
         buttonSpace: openButtonWidth + Kirigami.Units.smallSpacing      // room for the "Open File" buttons
     })
-    readonly property int openButtonWidth: Kirigami.Units.gridUnit * 7
+    readonly property int openButtonWidth: Math.max(Kirigami.Units.gridUnit * 4, Math.round(Kirigami.Units.gridUnit * 7 * cfg.diffTextScale / 100))
+
+    // ---- text size (Ctrl + mouse wheel), in percent, separately for the list and the diff
+    function fontPt(f) {
+        return f.pointSize > 0 ? f.pointSize : (f.pixelSize > 0 ? f.pixelSize * 0.75 : 10);
+    }
+
+    property real wheelAcc: 0
+
+    // One mouse-wheel notch (120) changes the size by 10 %; touchpad deltas are added up.
+    function wheelScale(isDiff, angleY) {
+        wheelAcc += angleY;
+        var steps = Math.trunc(wheelAcc / 120);
+        if (steps === 0) {
+            return;
+        }
+        wheelAcc -= steps * 120;
+        var cur = isDiff ? cfg.diffTextScale : cfg.listTextScale;
+        var next = Math.max(50, Math.min(300, cur + steps * 10));
+        if (isDiff) {
+            cfg.diffTextScale = next;
+        } else {
+            cfg.listTextScale = next;
+        }
+    }
+
+    function resetScale(isDiff) {
+        if (isDiff) {
+            cfg.diffTextScale = 100;
+        } else {
+            cfg.listTextScale = 100;
+        }
+    }
     readonly property var rowColors: ({
         hash: Kirigami.Theme.neutralTextColor.toString(),
         author: Kirigami.Theme.linkColor.toString(),
@@ -1124,6 +1156,22 @@ PlasmoidItem {
         }
     }
 
+    // Transparent layer over a scroll area: Ctrl + mouse wheel changes the text size; a plain wheel
+    // (and every click) goes on to the items below.
+    component WheelZoom: MouseArea {
+        signal zoom(real angleY)
+        anchors.fill: parent
+        acceptedButtons: Qt.NoButton
+        onWheel: wheel => {
+            if (wheel.modifiers & Qt.ControlModifier) {
+                zoom(wheel.angleDelta.y);
+                wheel.accepted = true;
+            } else {
+                wheel.accepted = false;
+            }
+        }
+    }
+
     // ---------------------------------------------------- representations
 
     compactRepresentation: MouseArea {
@@ -1439,123 +1487,133 @@ PlasmoidItem {
                 }
             }
 
-            PlasmaComponents.ScrollView {
+            // The ScrollView sits in a plain Item with a transparent overlay: Plasma's ScrollView handles
+            // the mouse wheel itself, so Ctrl + wheel (text size) has to be caught above it.
+            Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 visible: root.displayCommits.length > 0
 
-                ListView {
-                    id: commitList
-                    model: root.displayCommits
-                    clip: true
+                PlasmaComponents.ScrollView {
+                    anchors.fill: parent
 
-                    delegate: Rectangle {
-                        id: row
-                        required property var modelData
-                        required property int index
+                    ListView {
+                        id: commitList
+                        model: root.displayCommits
+                        clip: true
 
-                        property double lastDouble: 0
+                        delegate: Rectangle {
+                            id: row
+                            required property var modelData
+                            required property int index
 
-                        width: ListView.view.width
-                        height: rowLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
-                        color: rowMouse.containsMouse ? Qt.alpha(Kirigami.Theme.highlightColor, 0.15) : "transparent"
+                            property double lastDouble: 0
 
-                        // A single click shows the diff, a double click opens the web page. The diff
-                        // view replaces the list, so it waits until the double-click time has passed.
-                        Timer {
-                            id: clickTimer
-                            interval: ((Qt.styleHints && Qt.styleHints.mouseDoubleClickInterval) || 400) + 30
-                            onTriggered: root.openDiff(row.modelData)
-                        }
+                            width: ListView.view.width
+                            height: rowLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
+                            color: rowMouse.containsMouse ? Qt.alpha(Kirigami.Theme.highlightColor, 0.15) : "transparent"
 
-                        PlasmaComponents.Menu {
-                            id: rowMenu
-                            PlasmaComponents.MenuItem {
-                                text: i18n("Show the changes")
-                                icon.name: "vcs-diff"
+                            // A single click shows the diff, a double click opens the web page. The diff
+                            // view replaces the list, so it waits until the double-click time has passed.
+                            Timer {
+                                id: clickTimer
+                                interval: ((Qt.styleHints && Qt.styleHints.mouseDoubleClickInterval) || 400) + 30
                                 onTriggered: root.openDiff(row.modelData)
                             }
-                            PlasmaComponents.MenuItem {
-                                text: i18n("Copy SHA")
-                                icon.name: "edit-copy"
-                                onTriggered: root.copySha(row.modelData)
-                            }
-                            PlasmaComponents.MenuItem {
-                                text: i18n("Open in the browser")
-                                icon.name: "internet-services"
-                                enabled: root.st(row.modelData.repoId).webUrl !== ""
-                                onTriggered: root.openCommitWeb(row.modelData)
-                            }
-                        }
 
-                        MouseArea {
-                            id: rowMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            acceptedButtons: Qt.LeftButton | Qt.RightButton
-                            onClicked: mouse => {
-                                if (mouse.button === Qt.RightButton) {
+                            PlasmaComponents.Menu {
+                                id: rowMenu
+                                PlasmaComponents.MenuItem {
+                                    text: i18n("Show the changes")
+                                    icon.name: "vcs-diff"
+                                    onTriggered: root.openDiff(row.modelData)
+                                }
+                                PlasmaComponents.MenuItem {
+                                    text: i18n("Copy SHA")
+                                    icon.name: "edit-copy"
+                                    onTriggered: root.copySha(row.modelData)
+                                }
+                                PlasmaComponents.MenuItem {
+                                    text: i18n("Open in the browser")
+                                    icon.name: "internet-services"
+                                    enabled: root.st(row.modelData.repoId).webUrl !== ""
+                                    onTriggered: root.openCommitWeb(row.modelData)
+                                }
+                            }
+
+                            MouseArea {
+                                id: rowMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                onClicked: mouse => {
+                                    if (mouse.button === Qt.RightButton) {
+                                        clickTimer.stop();
+                                        rowMenu.popup();
+                                    } else if (Date.now() - row.lastDouble > 600) {
+                                        clickTimer.restart();
+                                    }
+                                }
+                                onDoubleClicked: {
                                     clickTimer.stop();
-                                    rowMenu.popup();
-                                } else if (Date.now() - row.lastDouble > 600) {
-                                    clickTimer.restart();
+                                    row.lastDouble = Date.now();
+                                    root.openCommitWeb(row.modelData);
                                 }
                             }
-                            onDoubleClicked: {
-                                clickTimer.stop();
-                                row.lastDouble = Date.now();
-                                root.openCommitWeb(row.modelData);
-                            }
-                        }
 
-                        PlasmaComponents.ToolTip.text: i18n("Click: show the changes\nDouble-click: open in the browser\nRight-click: more actions")
-                        PlasmaComponents.ToolTip.visible: rowMouse.containsMouse
-                        PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+                            PlasmaComponents.ToolTip.text: i18n("Click: show the changes\nDouble-click: open in the browser\nRight-click: more actions")
+                            PlasmaComponents.ToolTip.visible: rowMouse.containsMouse
+                            PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
 
-                        RowLayout {
-                            id: rowLayout
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            anchors.margins: Kirigami.Units.smallSpacing
-                            spacing: Kirigami.Units.smallSpacing
+                            RowLayout {
+                                id: rowLayout
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                anchors.margins: Kirigami.Units.smallSpacing
+                                spacing: Kirigami.Units.smallSpacing
 
-                            Rectangle {
-                                Layout.alignment: Qt.AlignTop
-                                Layout.topMargin: Kirigami.Units.smallSpacing
-                                implicitWidth: Kirigami.Units.smallSpacing * 2
-                                implicitHeight: implicitWidth
-                                radius: width / 2
-                                color: Kirigami.Theme.highlightColor
-                                opacity: row.modelData.unread ? 1 : 0
-                            }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 0
-
-                                PlasmaComponents.Label {
-                                    Layout.fillWidth: true
-                                    textFormat: Text.StyledText
-                                    text: Helpers.subjectHtml(row.modelData.subject, root.rowColors.author)
-                                    wrapMode: Text.Wrap
-                                    maximumLineCount: 2
-                                    elide: Text.ElideRight
-                                    font.weight: row.modelData.unread ? Font.Bold : Font.Normal
+                                Rectangle {
+                                    Layout.alignment: Qt.AlignTop
+                                    Layout.topMargin: Kirigami.Units.smallSpacing
+                                    implicitWidth: Kirigami.Units.smallSpacing * 2
+                                    implicitHeight: implicitWidth
+                                    radius: width / 2
+                                    color: Kirigami.Theme.highlightColor
+                                    opacity: row.modelData.unread ? 1 : 0
                                 }
-                                PlasmaComponents.Label {
+
+                                ColumnLayout {
                                     Layout.fillWidth: true
-                                    elide: Text.ElideRight
-                                    textFormat: Text.StyledText
-                                    font: Kirigami.Theme.smallFont
-                                    text: Helpers.metaHtml(row.modelData,
-                                                           root.rowPrefix(row.modelData),
-                                                           root.rowColors)
+                                    spacing: 0
+
+                                    PlasmaComponents.Label {
+                                        Layout.fillWidth: true
+                                        textFormat: Text.StyledText
+                                        text: Helpers.subjectHtml(row.modelData.subject, root.rowColors.author)
+                                        wrapMode: Text.Wrap
+                                        maximumLineCount: 2
+                                        elide: Text.ElideRight
+                                        font.pointSize: root.fontPt(Kirigami.Theme.defaultFont) * cfg.listTextScale / 100
+                                        font.weight: row.modelData.unread ? Font.Bold : Font.Normal
+                                    }
+                                    PlasmaComponents.Label {
+                                        Layout.fillWidth: true
+                                        elide: Text.ElideRight
+                                        textFormat: Text.StyledText
+                                        font.family: Kirigami.Theme.smallFont.family
+                                        font.pointSize: root.fontPt(Kirigami.Theme.smallFont) * cfg.listTextScale / 100
+                                        text: Helpers.metaHtml(row.modelData,
+                                                               root.rowPrefix(row.modelData),
+                                                               root.rowColors)
+                                    }
                                 }
                             }
                         }
                     }
                 }
+
+                WheelZoom { onZoom: angleY => root.wheelScale(false, angleY) }
             }
 
             Item {
@@ -1619,103 +1677,109 @@ PlasmoidItem {
                 }
             }
 
-            PlasmaComponents.ScrollView {
+            Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 visible: root.diffState === "ok"
 
-                // Read-only rich text: colored like a diff view, and the text can be selected and copied
-                // (mouse selection, Ctrl+C, Ctrl+A, or the right-click menu).
-                PlasmaComponents.TextArea {
-                    id: diffText
-                    readOnly: true
-                    selectByMouse: true
-                    persistentSelection: true
-                    textFormat: TextEdit.RichText
-                    wrapMode: TextEdit.WrapAnywhere
-                    background: null
-                    padding: 0
-                    leftPadding: Kirigami.Units.smallSpacing
-                    rightPadding: Kirigami.Units.smallSpacing
-                    font.family: Kirigami.Theme.fixedWidthFont.family
-                    font.pointSize: Kirigami.Theme.fixedWidthFont.pointSize > 0
-                                    ? Kirigami.Theme.fixedWidthFont.pointSize
-                                    : Kirigami.Theme.defaultFont.pointSize
-                    text: root.diffHtml
+                PlasmaComponents.ScrollView {
+                    anchors.fill: parent
 
-                    TapHandler {
-                        acceptedButtons: Qt.RightButton
-                        onTapped: diffMenu.popup()
-                    }
+                    // Read-only rich text: colored like a diff view, and the text can be selected and copied
+                    // (mouse selection, Ctrl+C, Ctrl+A, or the right-click menu).
+                    PlasmaComponents.TextArea {
+                        id: diffText
+                        readOnly: true
+                        selectByMouse: true
+                        persistentSelection: true
+                        textFormat: TextEdit.RichText
+                        wrapMode: TextEdit.WrapAnywhere
+                        background: null
+                        padding: 0
+                        leftPadding: Kirigami.Units.smallSpacing
+                        rightPadding: Kirigami.Units.smallSpacing
+                        font.family: Kirigami.Theme.fixedWidthFont.family
+                        font.pointSize: (Kirigami.Theme.fixedWidthFont.pointSize > 0
+                                         ? Kirigami.Theme.fixedWidthFont.pointSize
+                                         : Kirigami.Theme.defaultFont.pointSize) * cfg.diffTextScale / 100
+                        text: root.diffHtml
 
-                    // One "Open File" button at the right end of each changed file's header line.
-                    // The lines are placed with positionToRectangle(), so the buttons scroll with the text.
-                    Repeater {
-                        model: root.diffMarks
+                        TapHandler {
+                            acceptedButtons: Qt.RightButton
+                            onTapped: diffMenu.popup()
+                        }
 
-                        delegate: MouseArea {
-                            id: openBtn
-                            required property var modelData
+                        // One "Open File" button at the right end of each changed file's header line.
+                        // The lines are placed with positionToRectangle(), so the buttons scroll with the text.
+                        Repeater {
+                            model: root.diffMarks
 
-                            readonly property rect lineRect: {
-                                diffText.width;
-                                diffText.contentHeight;
-                                diffText.text;
-                                return diffText.positionToRectangle(openBtn.modelData.off);
-                            }
+                            delegate: MouseArea {
+                                id: openBtn
+                                required property var modelData
 
-                            x: diffText.width - width
-                            y: lineRect.y
-                            width: root.openButtonWidth
-                            height: lineRect.height
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.openFile(openBtn.modelData.path)
-
-                            PlasmaComponents.ToolTip.text: i18n("Open this file as it is in this commit (a read-only copy)")
-                            PlasmaComponents.ToolTip.visible: containsMouse
-                            PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
-
-                            Rectangle {
-                                anchors.fill: parent
-                                color: root.mix(Kirigami.Theme.textColor, openBtn.containsMouse ? 0.24 : 0.10)
-                            }
-                            Row {
-                                anchors.centerIn: parent
-                                spacing: Kirigami.Units.smallSpacing
-                                Kirigami.Icon {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    source: "document-open"
-                                    width: Math.round(openBtn.height * 0.85)
-                                    height: width
+                                readonly property rect lineRect: {
+                                    diffText.width;
+                                    diffText.contentHeight;
+                                    diffText.text;
+                                    return diffText.positionToRectangle(openBtn.modelData.off);
                                 }
-                                Text {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    font.family: diffText.font.family
-                                    font.pointSize: diffText.font.pointSize
-                                    font.bold: true
-                                    color: Kirigami.Theme.linkColor
-                                    text: i18n("Open File")
+
+                                x: diffText.width - width
+                                y: lineRect.y
+                                width: root.openButtonWidth
+                                height: lineRect.height
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.openFile(openBtn.modelData.path)
+
+                                PlasmaComponents.ToolTip.text: i18n("Open this file as it is in this commit (a read-only copy)")
+                                PlasmaComponents.ToolTip.visible: containsMouse
+                                PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+
+                                Rectangle {
+                                    anchors.fill: parent
+                                    color: root.mix(Kirigami.Theme.textColor, openBtn.containsMouse ? 0.24 : 0.10)
+                                }
+                                Row {
+                                    anchors.centerIn: parent
+                                    spacing: Kirigami.Units.smallSpacing
+                                    Kirigami.Icon {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        source: "document-open"
+                                        width: Math.round(openBtn.height * 0.85)
+                                        height: width
+                                    }
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        font.family: diffText.font.family
+                                        font.pointSize: diffText.font.pointSize
+                                        font.bold: true
+                                        color: Kirigami.Theme.linkColor
+                                        text: i18n("Open File")
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    PlasmaComponents.Menu {
-                        id: diffMenu
-                        PlasmaComponents.MenuItem {
-                            text: i18n("Copy")
-                            icon.name: "edit-copy"
-                            enabled: diffText.selectedText !== ""
-                            onTriggered: diffText.copy()
-                        }
-                        PlasmaComponents.MenuItem {
-                            text: i18n("Select all")
-                            icon.name: "edit-select-all"
-                            onTriggered: diffText.selectAll()
+                        PlasmaComponents.Menu {
+                            id: diffMenu
+                            PlasmaComponents.MenuItem {
+                                text: i18n("Copy")
+                                icon.name: "edit-copy"
+                                enabled: diffText.selectedText !== ""
+                                onTriggered: diffText.copy()
+                            }
+                            PlasmaComponents.MenuItem {
+                                text: i18n("Select all")
+                                icon.name: "edit-select-all"
+                                onTriggered: diffText.selectAll()
+                            }
                         }
                     }
                 }
+
+                WheelZoom { onZoom: angleY => root.wheelScale(true, angleY) }
             }
 
             PlasmaComponents.Label {
@@ -1730,9 +1794,10 @@ PlasmoidItem {
 
         footer: PlasmaExtras.PlasmoidHeading {
             position: PlasmaExtras.PlasmoidHeading.Footer
-            visible: root.diffCommit === null && !root.unconfigured
+            visible: root.diffCommit !== null || !root.unconfigured
 
             RowLayout {
+                id: footerRow
                 anchors.fill: parent
 
                 PlasmaComponents.Label {
@@ -1741,9 +1806,26 @@ PlasmoidItem {
                     opacity: 0.7
                     text: {
                         root.rev;
+                        if (root.diffCommit !== null) {
+                            return i18n("Ctrl + mouse wheel: change the text size");
+                        }
                         var ids = root.effectiveIds();
                         if (ids.length > 1) {
-                            return i18np("Watching %1 repository", "Watching %1 repositories", ids.length);
+                            // ids are branch entries: count repositories and branches separately
+                            var parents = {};
+                            var nParents = 0;
+                            for (var i = 0; i < ids.length; ++i) {
+                                var u = root.repoById(ids[i]);
+                                if (u && !parents[u.parentId]) {
+                                    parents[u.parentId] = true;
+                                    ++nParents;
+                                }
+                            }
+                            if (nParents <= 1) {
+                                return i18np("Watching %1 branch", "Watching %1 branches", ids.length);
+                            }
+                            var base = i18np("Watching %1 repository", "Watching %1 repositories", nParents);
+                            return ids.length > nParents ? i18n("%1 (%2 branches)", base, ids.length) : base;
                         }
                         var s = root.st(ids[0]);
                         if (s.locked) {
@@ -1755,9 +1837,28 @@ PlasmoidItem {
                         return s.lastCheck ? i18n("Last checked: %1", s.lastCheck) : "";
                     }
                 }
+                PlasmaComponents.Label {
+                    // The hint of the list: hidden when the popup is too narrow for it.
+                    visible: root.diffCommit === null && footerRow.width > Kirigami.Units.gridUnit * 26
+                    opacity: 0.7
+                    text: i18n("Ctrl + wheel: text size")
+                }
+                PlasmaComponents.ToolButton {
+                    // Shows the current text size (when it is not 100 %); a click resets it.
+                    readonly property int textScale: root.diffCommit !== null ? cfg.diffTextScale : cfg.listTextScale
+                    visible: textScale !== 100
+                    icon.name: "zoom-original"
+                    text: textScale + " %"
+                    onClicked: root.resetScale(root.diffCommit !== null)
+                    PlasmaComponents.ToolTip.text: i18n("Reset the text size to 100 %")
+                    PlasmaComponents.ToolTip.visible: hovered
+                }
                 PlasmaComponents.ToolButton {
                     visible: {
                         root.rev;
+                        if (root.diffCommit !== null) {
+                            return false;
+                        }
                         var ids = root.effectiveIds();
                         return ids.length === 1 && root.st(ids[0]).webUrl !== "";
                     }
