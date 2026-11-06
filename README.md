@@ -53,13 +53,13 @@ The widget has been tested on Arch Linux with KDE Plasma 6 on Wayland.
 
 ### From the release package
 
-Download `git-commit-watcher-1.1.plasmoid` from the
+Download `git-commit-watcher-1.2.plasmoid` from the
 [latest release](https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/latest). Use the file listed
 under Assets; the automatic "Source code" archives are not installable packages.
 
 ```sh
-curl -LO https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/download/v1.1/git-commit-watcher-1.1.plasmoid
-kpackagetool6 -t Plasma/Applet -i git-commit-watcher-1.1.plasmoid
+curl -LO https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/download/v1.2/git-commit-watcher-1.2.plasmoid
+kpackagetool6 -t Plasma/Applet -i git-commit-watcher-1.2.plasmoid
 ```
 
 The package can also be installed from the widget explorer: right-click the panel or desktop, open
@@ -73,7 +73,7 @@ The installed version and the checksum of the downloaded file can be checked wit
 
 ```sh
 grep Version ~/.local/share/plasma/plasmoids/local.gitcommitwatcher/metadata.json
-sha256sum git-commit-watcher-1.1.plasmoid
+sha256sum git-commit-watcher-1.2.plasmoid
 ```
 
 If the release notes list a SHA-256 checksum, it should match the output of the second command.

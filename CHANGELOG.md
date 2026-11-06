@@ -6,12 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.2] - 2026-11-06
+
 ### Added
 
 - Several branches per repository: list them in the "Branch" field separated by commas or spaces
   (`main, dev`). Every branch is checked on its own (own unread counter, "Test connection" tests each of
-  them), without adding the repository twice. A commit that is on
-  several watched branches is announced once, counted once and shown once. When the chosen repository has
+  them), without adding the repository twice. A commit that is on several
+  watched branches is announced once, counted once and shown once. When the chosen repository has
   several branches, a branch switcher ("All branches", "main", "dev", each with its unread count) appears under
   the header; the repository selector at the top lists repositories only. The list shows which branches a
   commit is on. Existing single-branch settings keep working unchanged. Several branches of one local clone are
@@ -100,6 +102,7 @@ First public release.
   Local File…*), and `scripts/package.sh` to build it from the source.
 - Documentation: `README.md`, `SECURITY.md`, this changelog and issue templates.
 
-[Unreleased]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.1...HEAD
+[Unreleased]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.2...HEAD
+[1.2]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.1...v1.2
 [1.1]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.0...v1.1
 [1.0]: https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/tag/v1.0
