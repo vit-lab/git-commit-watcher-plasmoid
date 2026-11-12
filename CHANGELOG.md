@@ -12,6 +12,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   different repositories are easy to tell apart; the branches after the name stay grey. The colors are handed
   out by the order of the repositories in the settings (8 colors, then they repeat) and adapt to light and dark
   themes.
+- Performance with several watched branches:
+  - The branches of a repository are checked in one round that talks to the remote once: one `git fetch` for a
+    local clone (it was one per branch, one after another), or one `git ls-remote` for a remote URL, with a
+    fetch only for the branches that have new commits (it was one fetch per branch).
+  - The commit list in the popup is rebuilt once for all results that arrive together, and only when
+    something that is shown has changed (it was rebuilt twice per branch in every check, which made scrolling
+    and clicking stutter while a check was running).
+  - The rows of the list share one context menu and one click timer, so a click on a commit is no longer lost
+    when the list is rebuilt at the same moment.
 - Documentation: screenshots in the README (`docs/screenshots/`).
 - Documentation: the widget is listed on the KDE Store (<https://www.opendesktop.org/p/2381252>); the README
   has an installation section for it.

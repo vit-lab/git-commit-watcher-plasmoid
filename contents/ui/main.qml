@@ -36,6 +36,10 @@ PlasmoidItem {
     property string branchSig: ""
     property var displayCommits: []
     property var problems: []
+    property string displaySig: ""       // what displayCommits shows; the list is replaced only when it changes
+    property string problemsSig: ""
+    property string cycle: ""            // id of the current check round (see check.sh, GCW_CYCLE)
+    property int cycleCount: 0
     property var tabModel: []
     property string tabSig: ""
 
@@ -474,9 +478,27 @@ PlasmoidItem {
         return false;
     }
 
+    // Something changed. The numbers (badge, tooltip, busy indicator) follow at once. The list in the
+    // popup is rebuilt a moment later, once for everything that arrives together: a check round reports
+    // every watched branch on its own, and a rebuild for each of them made the popup stutter.
     function bump() {
         rev++;
+        if (!displayTimer.running) {
+            displayTimer.start();
+        }
+    }
+
+    // The same, with the list rebuilt at once (for things the user has just done).
+    function bumpNow() {
+        rev++;
+        displayTimer.stop();
         buildDisplay();
+    }
+
+    Timer {
+        id: displayTimer
+        interval: 150
+        onTriggered: root.buildDisplay()
     }
 
     function loadSaved() {
@@ -563,7 +585,7 @@ PlasmoidItem {
         for (var j = 0; j < list.length; ++j) {
             updateUnread(list[j].id);
         }
-        bump();
+        bumpNow();
     }
 
     // What stands before the hash in a list row (see Helpers.metaHtml): in "All repositories" the name of
@@ -684,8 +706,23 @@ PlasmoidItem {
                 probs.push({ id: pid2, name: Helpers.repoDisplayName(pr), msg: ds.error, locked: ds.locked });
             }
         }
-        displayCommits = out;
-        problems = probs;
+        // Replacing the model makes the list throw away and rebuild its rows, so do it only when
+        // something that is shown has changed.
+        var parts = [];
+        for (var n = 0; n < out.length; ++n) {
+            var e = out[n];
+            parts.push(e.repoId + "\t" + e.hash + "\t" + (e.unread ? 1 : 0) + "\t" + e.repoName + "\t" + e.branchLabel + "\t" + e.when);
+        }
+        var dsig = parts.join("\n");
+        if (dsig !== displaySig || out.length !== displayCommits.length) {
+            displaySig = dsig;
+            displayCommits = out;
+        }
+        var psig = JSON.stringify(probs);
+        if (psig !== problemsSig) {
+            problemsSig = psig;
+            problems = probs;
+        }
 
         // Repository selector entries; only replaced when something changed, so an open
         // drop-down is not reset by every refresh.
@@ -730,7 +767,11 @@ PlasmoidItem {
 
     // ------------------------------------------------------------- checks
 
+    // Starts a check round. All checks of a round carry the same id, so that the branches of one
+    // repository share a single fetch.
     function checkAll() {
+        cycleCount++;
+        cycle = "c" + Date.now().toString(36) + "-" + cycleCount;
         discoverAll();
         checkUnits();
     }
@@ -762,7 +803,7 @@ PlasmoidItem {
             delete discoverMap[d.cmd];
         }
         d.started = Date.now();
-        d.cmd = Helpers.branchesCommand(scriptPath, { repo: r.path, key: r.sshKey, tokenFile: r.tokenFile });
+        d.cmd = Helpers.branchesCommand(scriptPath, { repo: r.path, key: r.sshKey, tokenFile: r.tokenFile, cycle: cycle });
         discoverMap[d.cmd] = r.id;
         finder.connectSource(d.cmd);
     }
@@ -816,7 +857,7 @@ PlasmoidItem {
         s.checkState = "checking";
         s.started = Date.now();
         s.cmd = Helpers.checkCommand(scriptPath, {
-            repo: r.path, branch: r.branch, key: r.sshKey, tokenFile: r.tokenFile, limit: 50
+            repo: r.path, branch: r.branch, key: r.sshKey, tokenFile: r.tokenFile, limit: 50, cycle: cycle
         });
         cmdMap[s.cmd] = r.id;
         bump();
@@ -907,7 +948,7 @@ PlasmoidItem {
         if (changed) {
             saveState();
         }
-        bump();
+        bumpNow();
     }
 
     onExpandedChanged: {
@@ -919,14 +960,14 @@ PlasmoidItem {
             if (cfg.markReadOnOpen) {
                 markAllRead("all");
             } else {
-                bump();
+                bumpNow();
             }
         } else {
             for (var j = 0; j < repoList.length; ++j) {
                 st(repoList[j].id).highlight = 0;
             }
             closeDiff();
-            bump();
+            bumpNow();
         }
     }
 
@@ -1506,9 +1547,48 @@ PlasmoidItem {
             // The ScrollView sits in a plain Item with a transparent overlay: Plasma's ScrollView handles
             // the mouse wheel itself, so Ctrl + wheel (text size) has to be caught above it.
             Item {
+                id: listPane
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 visible: root.displayCommits.length > 0
+
+                // One click timer and one context menu for the whole list, not one per row: the rows
+                // stay light, and a click is not lost when the list is rebuilt before the timer fires.
+                property var clickCommit: null
+                property var menuCommit: null
+                property double lastDouble: 0
+
+                // A single click shows the diff, a double click opens the web page. The diff view
+                // replaces the list, so it waits until the double-click time has passed.
+                Timer {
+                    id: clickTimer
+                    interval: ((Qt.styleHints && Qt.styleHints.mouseDoubleClickInterval) || 400) + 30
+                    onTriggered: {
+                        if (listPane.clickCommit) {
+                            root.openDiff(listPane.clickCommit);
+                        }
+                    }
+                }
+
+                PlasmaComponents.Menu {
+                    id: rowMenu
+                    PlasmaComponents.MenuItem {
+                        text: i18n("Show the changes")
+                        icon.name: "vcs-diff"
+                        onTriggered: root.openDiff(listPane.menuCommit)
+                    }
+                    PlasmaComponents.MenuItem {
+                        text: i18n("Copy SHA")
+                        icon.name: "edit-copy"
+                        onTriggered: root.copySha(listPane.menuCommit)
+                    }
+                    PlasmaComponents.MenuItem {
+                        text: i18n("Open in the browser")
+                        icon.name: "internet-services"
+                        enabled: listPane.menuCommit !== null && root.st(listPane.menuCommit.repoId).webUrl !== ""
+                        onTriggered: root.openCommitWeb(listPane.menuCommit)
+                    }
+                }
 
                 PlasmaComponents.ScrollView {
                     anchors.fill: parent
@@ -1523,39 +1603,9 @@ PlasmoidItem {
                             required property var modelData
                             required property int index
 
-                            property double lastDouble: 0
-
                             width: ListView.view.width
                             height: rowLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
                             color: rowMouse.containsMouse ? Qt.alpha(Kirigami.Theme.highlightColor, 0.15) : "transparent"
-
-                            // A single click shows the diff, a double click opens the web page. The diff
-                            // view replaces the list, so it waits until the double-click time has passed.
-                            Timer {
-                                id: clickTimer
-                                interval: ((Qt.styleHints && Qt.styleHints.mouseDoubleClickInterval) || 400) + 30
-                                onTriggered: root.openDiff(row.modelData)
-                            }
-
-                            PlasmaComponents.Menu {
-                                id: rowMenu
-                                PlasmaComponents.MenuItem {
-                                    text: i18n("Show the changes")
-                                    icon.name: "vcs-diff"
-                                    onTriggered: root.openDiff(row.modelData)
-                                }
-                                PlasmaComponents.MenuItem {
-                                    text: i18n("Copy SHA")
-                                    icon.name: "edit-copy"
-                                    onTriggered: root.copySha(row.modelData)
-                                }
-                                PlasmaComponents.MenuItem {
-                                    text: i18n("Open in the browser")
-                                    icon.name: "internet-services"
-                                    enabled: root.st(row.modelData.repoId).webUrl !== ""
-                                    onTriggered: root.openCommitWeb(row.modelData)
-                                }
-                            }
 
                             MouseArea {
                                 id: rowMouse
@@ -1565,14 +1615,16 @@ PlasmoidItem {
                                 onClicked: mouse => {
                                     if (mouse.button === Qt.RightButton) {
                                         clickTimer.stop();
+                                        listPane.menuCommit = row.modelData;
                                         rowMenu.popup();
-                                    } else if (Date.now() - row.lastDouble > 600) {
+                                    } else if (Date.now() - listPane.lastDouble > 600) {
+                                        listPane.clickCommit = row.modelData;
                                         clickTimer.restart();
                                     }
                                 }
                                 onDoubleClicked: {
                                     clickTimer.stop();
-                                    row.lastDouble = Date.now();
+                                    listPane.lastDouble = Date.now();
                                     root.openCommitWeb(row.modelData);
                                 }
                             }

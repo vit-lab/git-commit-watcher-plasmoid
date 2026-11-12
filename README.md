@@ -202,6 +202,7 @@ Passphrases and tokens are never stored by the widget. Only the paths of the key
 | Settings: repository list, paths of key and token files, last seen commits, pin and mute state, popup sizes | Plasma configuration, `~/.config/plasma-org.kde.plasma.desktop-appletsrc` |
 | Shallow copies of repositories watched by URL, and read-only copies created by "Open File" | `~/.cache/gitcommitwatcher/` (the "Open File" copies are deleted after a week) |
 | Socket of the private `ssh-agent` and the passphrase dialog launcher | `$XDG_RUNTIME_DIR` (`gcw-agent-<uid>.sock`, `gcw-askpass-<uid>.sh`) |
+| Small lock and state files of the checks (for example the branch list of the last check) | `$XDG_RUNTIME_DIR` (`gcw-*.lock`, `gcw-*.state`), removed at logout |
 
 ## Troubleshooting
 

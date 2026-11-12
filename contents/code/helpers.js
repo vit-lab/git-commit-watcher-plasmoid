@@ -191,6 +191,7 @@ function expandRepos(repos, discovered) {
 
 function branchesCommand(script, o) {
     return "GCW_MODE=branches"
+        + (o.cycle ? " GCW_CYCLE=" + q(o.cycle) : "")
         + " GCW_REPO=" + q(o.repo)
         + " GCW_KEY=" + q(o.key)
         + " GCW_TOKEN_FILE=" + q(o.tokenFile)
@@ -581,8 +582,10 @@ function metaHtml(c, prefix, col) {
         + '<font color="' + col.muted + '"> · <i>' + htmlEscape(c.when) + "</i></font>";
 }
 
+// o.cycle (optional): the id of the check round; checks with the same id share one fetch (see check.sh).
 function checkCommand(script, o) {
-    return "GCW_REPO=" + q(o.repo)
+    return (o.cycle ? "GCW_CYCLE=" + q(o.cycle) + " " : "")
+        + "GCW_REPO=" + q(o.repo)
         + " GCW_BRANCH=" + q(o.branch)
         + " GCW_KEY=" + q(o.key)
         + " GCW_TOKEN_FILE=" + q(o.tokenFile)
