@@ -509,9 +509,72 @@ function subjectHtml(subject, linkColor) {
     return htmlEscape(subject).replace(/(#\d+|\b[A-Z][A-Z0-9]+-\d+\b)/g, '<font color="' + linkColor + '">$1</font>');
 }
 
+// Hues (degrees) for the repository names in the "All repositories" list, in the order they are
+// handed out. Orange and light blue are left out: the commit hash and the author use them already.
+var REPO_HUES = [135, 310, 265, 55, 172, 345, 95, 235];
+
+function hslToRgb(h, s, l) {
+    var a = s * Math.min(l, 1 - l);
+    var f = function(n) {
+        var k = (n + h / 30) % 12;
+        return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    };
+    return [f(0), f(8), f(4)];
+}
+
+// Relative luminance and contrast ratio as defined by WCAG; r, g, b are 0..1.
+function luminance(r, g, b) {
+    var lin = function(v) {
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+function contrastRatio(l1, l2) {
+    return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+}
+
+// The color ("#rrggbb") of the n-th repository's name. The hue comes from REPO_HUES (it repeats after
+// the last one); the lightness is moved away from the background (bgR, bgG, bgB: 0..1) until the text
+// is readable on it (contrast 4.5 or more), so the colors work with light and dark themes.
+function repoColor(index, bgR, bgG, bgB) {
+    var hue = REPO_HUES[((index % REPO_HUES.length) + REPO_HUES.length) % REPO_HUES.length];
+    var bgL = luminance(bgR, bgG, bgB);
+    var onDark = bgL < 0.179;       // below this, light text has more contrast than dark text
+    var sat = onDark ? 0.75 : 0.85;
+    var l = onDark ? 0.62 : 0.40;
+    var rgb = hslToRgb(hue, sat, l);
+    // The lightness stays between 0.15 and 0.85, so that the color never turns into black or white.
+    for (var i = 0; i < 30 && l > 0.15 && l < 0.85
+             && contrastRatio(luminance(rgb[0], rgb[1], rgb[2]), bgL) < 4.5; ++i) {
+        l += onDark ? 0.02 : -0.02;
+        rgb = hslToRgb(hue, sat, l);
+    }
+    var hex = function(v) {
+        var t = Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16);
+        return t.length < 2 ? "0" + t : t;
+    };
+    return "#" + hex(rgb[0]) + hex(rgb[1]) + hex(rgb[2]);
+}
+
 // "repo · hash · author · time" line of a commit row (StyledText); col = { hash, author, muted }.
-function metaHtml(c, repoPrefix, col) {
-    return (repoPrefix ? '<font color="' + col.muted + '">' + htmlEscape(repoPrefix) + " · </font>" : "")
+// prefix: nothing, a plain text, or { name, rest, color }: `name` is shown in `color` (bold) and
+// `rest` (for example the branches) in the muted color.
+function metaHtml(c, prefix, col) {
+    var p = "";
+    var muted = function(t) {
+        return t ? '<font color="' + col.muted + '">' + htmlEscape(t) + "</font>" : "";
+    };
+    if (prefix && typeof prefix === "object") {
+        if (prefix.name) {
+            p += prefix.color ? '<font color="' + prefix.color + '"><b>' + htmlEscape(prefix.name) + "</b></font>"
+                              : muted(prefix.name);
+        }
+        p += muted(prefix.rest);
+    } else {
+        p = muted(prefix);
+    }
+    return (p ? p + muted(" · ") : "")
         + '<font color="' + col.hash + '">' + htmlEscape(c.short) + "</font>"
         + '<font color="' + col.muted + '"> · </font>'
         + '<font color="' + col.author + '"><b>' + htmlEscape(c.author) + "</b></font>"

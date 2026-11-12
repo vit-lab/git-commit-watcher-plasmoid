@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- "All repositories" list: every repository name has its own color (bold) instead of grey, so commits of
+  different repositories are easy to tell apart; the branches after the name stay grey. The colors are handed
+  out by the order of the repositories in the settings (8 colors, then they repeat) and adapt to light and dark
+  themes.
 - Documentation: screenshots in the README (`docs/screenshots/`).
 - Documentation: the widget is listed on the KDE Store (<https://www.opendesktop.org/p/2381252>); the README
   has an installation section for it.

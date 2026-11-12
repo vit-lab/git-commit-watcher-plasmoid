@@ -174,7 +174,8 @@ Passphrases and tokens are never stored by the widget. Only the paths of the key
 
 ## Usage
 
-- The drop-down at the top selects a repository or "All repositories".
+- The drop-down at the top selects a repository or "All repositories". In "All repositories" every
+  repository name has its own color, so the commits of different repositories are easy to tell apart.
 - Clicking a commit shows its diff. The arrow at the top returns to the list.
 - Double-clicking a commit opens it in the browser. Links of the form `<repository>/commit/<hash>` are used,
   which works for GitHub, GitLab and Gitea.

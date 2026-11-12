@@ -149,6 +149,16 @@ PlasmoidItem {
         author: Kirigami.Theme.linkColor.toString(),
         muted: mix(Kirigami.Theme.textColor, 0.6)
     })
+    // The color of each repository's name in the "All repositories" list: repository id -> "#rrggbb",
+    // handed out by the position of the repository in the settings.
+    readonly property var repoColors: {
+        var bg = Kirigami.Theme.backgroundColor;
+        var m = {};
+        for (var i = 0; i < parsedRepos.length; ++i) {
+            m[parsedRepos[i].id] = Helpers.repoColor(i, bg.r, bg.g, bg.b);
+        }
+        return m;
+    }
     readonly property var diffMarks: Helpers.diffFileMarks(diffLines)      // where the "Open File" buttons go
     readonly property string diffHtml: diffLines.length > 0 ? Helpers.diffToHtml(diffLines, diffPalette) : ""
 
@@ -556,11 +566,16 @@ PlasmoidItem {
         bump();
     }
 
-    // The text before the hash in a list row: the repository (and branches) in "All repositories",
-    // the branches in "All branches" of one repository, nothing when a single branch is shown.
+    // What stands before the hash in a list row (see Helpers.metaHtml): in "All repositories" the name of
+    // the repository in its own color, followed by its branches; in "All branches" of one repository the
+    // branches; nothing when a single branch is shown.
     function rowPrefix(c) {
         if (showAllTab && currentTab === "all") {
-            return c.repoName;
+            return {
+                name: c.repoBase,
+                rest: c.multi ? " (" + c.branchLabel + ")" : "",
+                color: repoColors[c.parentId] || ""
+            };
         }
         if (showBranchBar && currentBranch === "") {
             return c.branchLabel;
@@ -647,7 +662,8 @@ PlasmoidItem {
                 }
                 var entry = {
                     repoId: id, repoName: nameOf(id), hash: c.hash, short: c.short, author: c.author,
-                    subject: c.subject, when: c.when, ts: c.ts, unread: i < hl, branches: [u ? u.branch : ""], branchLabel: u ? u.branch : ""
+                    subject: c.subject, when: c.when, ts: c.ts, unread: i < hl, branches: [u ? u.branch : ""], branchLabel: u ? u.branch : "",
+                    parentId: u ? u.parentId : id, repoBase: u ? u.baseName : nameOf(id), multi: !!(u && u.multi)
                 };
                 if (ids.length > 1 && u && u.multi) {
                     merged[u.parentId + "|" + c.hash] = entry;
