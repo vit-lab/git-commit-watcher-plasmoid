@@ -72,7 +72,28 @@ PlasmoidItem {
     readonly property bool unconfigured: repoList.length === 0 && !waitingForBranches
     readonly property int totalUnread: { root.rev; return sumUnread(); }
     readonly property bool anyOverflow: { root.rev; return anyState("overflow"); }
-    readonly property bool anyChecking: { root.rev; return anyState("checking"); }
+    // A check runs, or the branch list of an "ALL" / pattern setting is being looked up.
+    readonly property bool anyChecking: {
+        root.rev;
+        return anyState("checking") || Object.keys(discoverState).some(function(k) { return discoverState[k].cmd !== ""; });
+    }
+    // Download progress of the running checks, per repository setting: { parentId: { phase, percent,
+    // size, speed, eta, name } }. Read from the progress files of check.sh while the popup is open.
+    property var progress: ({})
+    property var progressStart: ({})  // progress key -> { phase, percent, t }: for the time left
+    property string progressCmd: ""
+    // The progress to show: of a shown repository if one is downloading, else of any.
+    readonly property var activeProgress: {
+        var shown = shownRepoIds();
+        var any = null;
+        for (var pid in progress) {
+            if (shown.indexOf(pid) >= 0) {
+                return progress[pid];
+            }
+            any = any || progress[pid];
+        }
+        return any;
+    }
     readonly property bool anyLocked: { root.rev; return anyState("locked"); }
     readonly property bool showRepoBar: { root.rev; return parentCount() > 1; }
     // The text of the repository drop-down: "All repositories", or the names of the chosen ones.
@@ -243,9 +264,9 @@ PlasmoidItem {
 
     Plasmoid.contextualActions: [
         PlasmaCore.Action {
-            text: i18n("Check now")
-            icon.name: "view-refresh"
-            onTriggered: root.checkAll()
+            text: root.anyChecking ? i18n("Stop checking") : i18n("Check now")
+            icon.name: root.anyChecking ? "process-stop" : "view-refresh"
+            onTriggered: root.anyChecking ? root.stopChecks() : root.checkAll()
         },
         PlasmaCore.Action {
             text: i18n("Mark all as read")
@@ -280,6 +301,43 @@ PlasmoidItem {
             if (id !== undefined) {
                 delete root.cmdMap[sourceName];
                 root.handleResult(id, sourceName, data["stdout"], data["stderr"], data["exit code"]);
+            }
+        }
+    }
+
+    // Runs the "stop" command of check.sh (see stopChecks).
+    Plasma5Support.DataSource {
+        id: stopper
+        engine: "executable"
+        connectedSources: []
+        onNewData: (sourceName, data) => disconnectSource(sourceName)
+    }
+
+    // Reads the download progress of the running checks (see check.sh, net_fetch).
+    Plasma5Support.DataSource {
+        id: progressSrc
+        engine: "executable"
+        connectedSources: []
+        onNewData: (sourceName, data) => {
+            disconnectSource(sourceName);
+            if (sourceName === root.progressCmd) {
+                root.progressCmd = "";
+                root.handleProgress(data["stdout"]);
+            }
+        }
+    }
+
+    Timer {
+        id: progressTimer
+        interval: 1000
+        repeat: true
+        triggeredOnStart: true
+        running: root.anyChecking && root.expanded
+        onTriggered: root.pollProgress()
+        onRunningChanged: {
+            if (!running) {
+                root.progress = ({});
+                root.progressStart = ({});
             }
         }
     }
@@ -869,7 +927,126 @@ PlasmoidItem {
         }
     }
 
+    // ------------------------------------------------------ download progress
+
+    function pollProgress() {
+        if (progressCmd !== "") {
+            return;  // the last poll has not answered yet
+        }
+        progressCmd = Helpers.progressCommand();
+        progressSrc.connectSource(progressCmd);
+    }
+
+    function handleProgress(stdout) {
+        if (!progressTimer.running) {
+            return;
+        }
+        var raw = Helpers.parseProgressList(stdout);
+        var parents = {};  // progress key -> repository setting
+        for (var i = 0; i < repoList.length; ++i) {
+            parents[Helpers.progressKey(repoList[i].parentId)] = repoList[i].parentId;
+        }
+        var out = {};
+        var starts = {};
+        var now = Date.now();
+        for (var k in raw) {
+            var pid = parents[k];
+            // Only while a check of the repository runs: a file left over by a stopped check is ignored.
+            if (pid === undefined || !parentUnits(pid).some(function(u) { return st(u.id).checkState === "checking"; })) {
+                continue;
+            }
+            var p = Helpers.parseGitProgress(raw[k]);
+            var prev = progressStart[k];
+            var start = (prev && prev.phase === p.phase) ? prev : { phase: p.phase, percent: Math.max(0, p.percent), t: now };
+            starts[k] = start;
+            p.eta = p.phase === "download" ? Helpers.etaSeconds(now - start.t, p.percent - start.percent, 100 - p.percent) : -1;
+            var u = parentUnits(pid)[0];
+            p.name = u ? (u.baseName || u.name) : "";
+            out[pid] = p;
+        }
+        progressStart = starts;
+        progress = out;
+    }
+
+    // The whole download as one bar: preparing on the server, downloading, unpacking. -1: not known
+    // (the bar then just moves).
+    function progressValue(p) {
+        if (!p) {
+            return -1;
+        }
+        switch (p.phase) {
+        case "server": return p.percent < 0 ? -1 : p.percent * 0.05;
+        case "download": return 5 + Math.max(0, p.percent) * 0.85;
+        case "unpack": return p.percent < 0 ? 99 : 90 + p.percent * 0.1;
+        }
+        return -1;
+    }
+
+    function progressText(p) {
+        if (!p) {
+            return "";
+        }
+        var pct = p.percent >= 0 ? " " + i18nc("percentage", "%1%", p.percent) : "";
+        switch (p.phase) {
+        case "server":
+            return i18n("Preparing on the server…") + pct;
+        case "unpack":
+            return i18n("Unpacking…") + pct;
+        case "download": {
+            var parts = [i18n("Downloading") + pct];
+            if (p.size) {
+                parts.push(p.size);
+            }
+            if (p.speed) {
+                parts.push(p.speed);
+            }
+            if (p.eta >= 0) {
+                parts.push(p.eta < 60 ? i18np("about %1 second left", "about %1 seconds left", Math.max(5, Math.round(p.eta / 5) * 5))
+                                      : i18np("about %1 minute left", "about %1 minutes left", Math.round(p.eta / 60)));
+            }
+            return parts.join(" · ");
+        }
+        }
+        return i18n("Connecting…");
+    }
+
     // ------------------------------------------------------------- checks
+
+    // Stops all running checks (the Stop button): their results are no longer awaited, and check.sh
+    // ends their processes. A repository that has commits keeps showing them; one without says that
+    // its check was stopped. The refresh button starts a new check.
+    function stopChecks() {
+        for (var id in states) {
+            var s = states[id];
+            if (s.checkState !== "checking") {
+                continue;
+            }
+            if (s.cmd) {
+                checker.disconnectSource(s.cmd);
+                delete cmdMap[s.cmd];
+                s.cmd = "";
+            }
+            if (s.commits.length > 0) {
+                s.checkState = "ok";
+            } else {
+                s.checkState = "error";
+                s.error = i18n("The check was stopped. Press the refresh button to check again.");
+            }
+        }
+        for (var pid in discoverState) {
+            var d = discoverState[pid];
+            if (d.cmd) {
+                finder.disconnectSource(d.cmd);
+                delete discoverMap[d.cmd];
+                d.cmd = "";
+                if (!discovered[pid]) {
+                    d.error = i18n("The check was stopped. Press the refresh button to check again.");
+                }
+            }
+        }
+        stopper.connectSource(Helpers.stopCommand(scriptPath));
+        bump();
+    }
 
     // Starts a check round. All checks of a round carry the same id, so that the branches of one
     // repository share a single fetch.
@@ -910,6 +1087,7 @@ PlasmoidItem {
         d.cmd = Helpers.branchesCommand(scriptPath, { repo: r.path, key: r.sshKey, tokenFile: r.tokenFile, cycle: cycle });
         discoverMap[d.cmd] = r.id;
         finder.connectSource(d.cmd);
+        bump();
     }
 
     function handleDiscovered(id, cmd, stdout, stderr, exitCode) {
@@ -961,7 +1139,9 @@ PlasmoidItem {
         s.checkState = "checking";
         s.started = Date.now();
         s.cmd = Helpers.checkCommand(scriptPath, {
-            repo: r.path, branch: r.branch, key: r.sshKey, tokenFile: r.tokenFile, limit: 50, cycle: cycle
+            repo: r.path, branch: r.branch, key: r.sshKey, tokenFile: r.tokenFile, limit: 50, cycle: cycle,
+            branches: parentUnits(r.parentId).map(function(u) { return u.branch; }).filter(function(b) { return b !== ""; }),
+            progressId: Helpers.progressKey(r.parentId)
         });
         cmdMap[s.cmd] = r.id;
         bump();
@@ -1143,7 +1323,7 @@ PlasmoidItem {
         if (diffCmd) {
             differ.disconnectSource(diffCmd);
         }
-        diffCmd = Helpers.diffCommand(diffScriptPath, { repo: r.path, branch: r.branch, hash: c.hash });
+        diffCmd = Helpers.diffCommand(diffScriptPath, { repo: r.path, hash: c.hash, key: r.sshKey, tokenFile: r.tokenFile });
         differ.connectSource(diffCmd);
     }
 
@@ -1182,7 +1362,7 @@ PlasmoidItem {
         if (!r || !path) {
             return;
         }
-        var cmd = Helpers.openFileCommand(openFileScriptPath, { repo: r.path, branch: r.branch, hash: c.hash, path: path });
+        var cmd = Helpers.openFileCommand(openFileScriptPath, { repo: r.path, hash: c.hash, path: path, key: r.sshKey, tokenFile: r.tokenFile });
         openMap[cmd] = true;
         flash(i18n("Opening %1…", path.replace(/^.*\//, "")), false);
         opener.connectSource(cmd);
@@ -1824,12 +2004,13 @@ PlasmoidItem {
                     PlasmaComponents.ToolTip.visible: hovered
                 }
                 PlasmaComponents.ToolButton {
+                    // "Check now", and while a check runs "Stop checking" (for a check that hangs).
                     visible: root.diffCommit === null
-                    icon.name: "view-refresh"
+                    icon.name: root.anyChecking ? "process-stop" : "view-refresh"
                     display: PlasmaComponents.AbstractButton.IconOnly
-                    enabled: !root.unconfigured && !root.anyChecking
-                    onClicked: root.checkAll()
-                    PlasmaComponents.ToolTip.text: i18n("Check now")
+                    enabled: !root.unconfigured
+                    onClicked: root.anyChecking ? root.stopChecks() : root.checkAll()
+                    PlasmaComponents.ToolTip.text: root.anyChecking ? i18n("Stop checking") : i18n("Check now")
                     PlasmaComponents.ToolTip.visible: hovered
                 }
                 PlasmaComponents.ToolButton {
@@ -2090,6 +2271,14 @@ PlasmoidItem {
                 }
             }
 
+            // The line between the choice of branches (and the problems) and the commit list, so that the
+            // first commit does not seem to belong to the rows above it.
+            Kirigami.Separator {
+                Layout.fillWidth: true
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                visible: root.showBranchBar || root.problems.length > 0
+            }
+
             // The ScrollView sits in a plain Item with a transparent overlay: Plasma's ScrollView handles
             // the mouse wheel itself, so Ctrl + wheel (text size) has to be caught above it.
             Item {
@@ -2235,33 +2424,60 @@ PlasmoidItem {
                 Layout.fillHeight: true
                 visible: root.displayCommits.length === 0
 
-                Kirigami.PlaceholderMessage {
+                ColumnLayout {
                     anchors.centerIn: parent
                     width: parent.width - Kirigami.Units.gridUnit * 4
-                    icon.name: (!root.unconfigured && root.problems.length > 0) ? "dialog-warning" : "folder-git"
-                    text: {
-                        if (root.unconfigured) {
-                            return i18n("No repository configured");
+                    spacing: Kirigami.Units.largeSpacing
+
+                    Kirigami.PlaceholderMessage {
+                        Layout.fillWidth: true
+                        icon.name: (!root.unconfigured && root.problems.length > 0) ? "dialog-warning" : "folder-git"
+                        explanation: root.anyChecking && root.activeProgress
+                            ? i18n("The first check downloads the recent history of the repository; later checks only download what is new.")
+                            : ""
+                        text: {
+                            if (root.unconfigured) {
+                                return i18n("No repository configured");
+                            }
+                            if (root.waitingForBranches) {
+                                return root.problems.length > 0 ? i18n("Nothing to show yet") : i18n("Looking for branches…");
+                            }
+                            if (root.anyChecking) {
+                                return root.activeProgress ? i18n("Downloading %1…", root.activeProgress.name) : i18n("Checking…");
+                            }
+                            if (root.problems.length > 0) {
+                                return i18n("Nothing to show yet");
+                            }
+                            if (root.viewUnitCount === 0) {
+                                return i18n("Nothing chosen: tick a repository or a branch in the lists above");
+                            }
+                            return i18n("No commits found");
                         }
-                        if (root.waitingForBranches) {
-                            return root.problems.length > 0 ? i18n("Nothing to show yet") : i18n("Looking for branches…");
+                        helpfulAction: Kirigami.Action {
+                            visible: root.unconfigured
+                            text: i18n("Configure…")
+                            icon.name: "configure"
+                            onTriggered: root.openConfig()
                         }
-                        if (root.anyChecking) {
-                            return i18n("Checking…");
-                        }
-                        if (root.problems.length > 0) {
-                            return i18n("Nothing to show yet");
-                        }
-                        if (root.viewUnitCount === 0) {
-                            return i18n("Nothing chosen: tick a repository or a branch in the lists above");
-                        }
-                        return i18n("No commits found");
                     }
-                    helpfulAction: Kirigami.Action {
-                        visible: root.unconfigured
-                        text: i18n("Configure…")
-                        icon.name: "configure"
-                        onTriggered: root.openConfig()
+
+                    // The download of the first check (or of a check that brings many new commits).
+                    PlasmaComponents.ProgressBar {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.preferredWidth: Math.min(parent.width, Kirigami.Units.gridUnit * 16)
+                        visible: root.anyChecking && root.activeProgress !== null
+                        from: 0
+                        to: 100
+                        indeterminate: root.progressValue(root.activeProgress) < 0
+                        value: Math.max(0, root.progressValue(root.activeProgress))
+                    }
+                    PlasmaComponents.Label {
+                        Layout.fillWidth: true
+                        visible: root.anyChecking && root.activeProgress !== null
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.Wrap
+                        opacity: 0.7
+                        text: root.progressText(root.activeProgress)
                     }
                 }
             }
@@ -2425,6 +2641,9 @@ PlasmoidItem {
                         root.rev;
                         if (root.diffCommit !== null) {
                             return i18n("Ctrl + mouse wheel: change the text size");
+                        }
+                        if (root.anyChecking && root.activeProgress) {
+                            return root.activeProgress.name + ": " + root.progressText(root.activeProgress);
                         }
                         var ids = root.effectiveIds();
                         if (ids.length > 1) {

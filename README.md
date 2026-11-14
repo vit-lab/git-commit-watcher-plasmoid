@@ -153,7 +153,7 @@ The second command deletes the widget's cache and is optional.
    such as `release/*` (also together with listed branches: `main, release/*`). The branches are found
    automatically and re-checked at every check, so new branches are picked up (at most 30 branches are taken
    for ALL or a pattern); a new branch is not announced itself, only its later commits. Each branch is checked
-   separately. In the popup, a "Branches" button lets you choose which branches of such a repository are
+   separately, but the branches of a repository share one download per check. In the popup, a "Branches" button lets you choose which branches of such a repository are
    shown. A commit that is on more
    than one watched branch (after a merge, for example) is announced and counted once, and is listed once in
    "All repositories" with all its branches.
@@ -210,9 +210,10 @@ Passphrases and tokens are never stored by the widget. Only the paths of the key
 | Data | Location |
 | --- | --- |
 | Settings: repository list, paths of key and token files, last seen commits, pin and mute state, popup sizes | Plasma configuration, `~/.config/plasma-org.kde.plasma.desktop-appletsrc` |
-| Shallow copies of repositories watched by URL, and read-only copies created by "Open File" | `~/.cache/gitcommitwatcher/` (the "Open File" copies are deleted after a week) |
+| Small copies of repositories watched by URL: the recent commits and folder listings, one copy per URL shared by its branches; file contents are downloaded only for the commits whose changes you open | `~/.cache/gitcommitwatcher/repos/` (a copy unused for 30 days is deleted) |
+| Read-only copies created by "Open File" | `~/.cache/gitcommitwatcher/files/` (deleted after a week) |
 | Socket of the private `ssh-agent` and the passphrase dialog launcher | `$XDG_RUNTIME_DIR` (`gcw-agent-<uid>.sock`, `gcw-askpass-<uid>.sh`) |
-| Small lock and state files of the checks (for example the branch list of the last check) | `$XDG_RUNTIME_DIR` (`gcw-*.lock`, `gcw-*.state`), removed at logout |
+| Small lock and state files of the checks (for example the branch list of the last check), and the download progress of a running check | `$XDG_RUNTIME_DIR` (`gcw-*.lock`, `gcw-*.state`, `gcw-progress-*.txt`, and `gcw-check-<pid>.run` while a check runs), removed at logout |
 
 ## Troubleshooting
 
@@ -222,6 +223,15 @@ Passphrases and tokens are never stored by the widget. Only the paths of the key
 - "The SSH key is protected by a passphrase and is locked": press "Unlock". If no dialog appears, install
   kdialog.
 - "The current branch has no upstream branch": enter the branch name in the repository settings.
+- A check hangs (for example the server does not answer): while a check runs, the refresh button in the
+  header is a stop button. It ends the running checks with their git processes; press it again to start a
+  new check.
+- The first check of a big repository takes a while: the popup shows the progress of the download (preparing
+  on the server, downloading with size, speed and the time left, unpacking). For a repository watched by URL
+  only the recent commits are downloaded, without file contents, so even big repositories usually take
+  seconds. A local clone is fetched by git as usual.
+- "This is the oldest commit the widget has downloaded": the widget keeps only the recent history, so the
+  changes of the oldest commit in its copy cannot be shown. Double-click the commit to open it in the browser.
 - "Commit ... is not available locally": the diff needs the commit in the local copy. Wait for the next check
   or use "Check now".
 - Clicking a notification does nothing: `notify-send --version` must be 0.8 or newer, and the notification

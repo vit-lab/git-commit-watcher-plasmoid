@@ -5,13 +5,59 @@
 #   GCW_MODE=branches: print only the branches ("B<US>name" lines) instead of the commits.
 #   GCW_CYCLE: an id of the check round (optional). The widget checks every watched branch of a
 #     repository at the same moment; with the same id those checks talk to the remote only once
-#     (one fetch of a local clone, one "ls-remote" of a remote URL) and share the result.
+#     (one fetch of a local clone, one "ls-remote" and one fetch for a remote URL) and share the result.
+#   GCW_BRANCHES: all watched branches of this repository (space-separated, optional). The first check
+#     of a round fetches the new commits of all of them at once.
+#   GCW_PROGRESS_ID: a name for the progress file (optional). While a fetch runs, git's progress is
+#     written to $XDG_RUNTIME_DIR/gcw-progress-<id>.txt, and the widget shows it.
 #   GCW_REPO is either a path to a local clone or a remote URL (ssh/https).
+#   GCW_MODE=stop: stops all running checks (the Stop button of the widget) and prints "STATUS=ok".
+#
+# Every check runs in a session of its own (setsid) and leaves a file $XDG_RUNTIME_DIR/gcw-check-<pid>.run
+# while it runs, so that "stop" can end it together with its git, ssh and timeout processes.
 #
 # Output: KEY=VALUE lines (STATUS, TIP, URL, MSG) followed by one line per commit:
 #   C<US>hash<US>short<US>author<US>subject<US>relative-date<US>unix-time
+#
+# A remote URL gets a cache repository of its own (see cache_dir_of in auth.sh), shared by all its
+# branches. It is shallow (the last commits only) and blobless: only commits and folder listings are
+# downloaded, and git fetches the files of a commit when its changes are shown (diff.sh).
 
 US=$'\x1f'
+
+# Mode "stop": end every running check, with all its processes (see above).
+if [ "${GCW_MODE:-}" = "stop" ]; then
+    D="${XDG_RUNTIME_DIR:-}"
+    if [ -n "$D" ] && [ -d "$D" ]; then
+        for f in "$D"/gcw-check-*.run; do
+            [ -f "$f" ] || continue
+            p="${f##*/gcw-check-}"
+            p="${p%.run}"
+            case "$p" in
+                "" | *[!0-9]*) rm -f "$f"; continue ;;
+            esac
+            # Only a process that still is one of our checks (the number may have been reused).
+            if tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | grep -q 'check\.sh'; then
+                pkill -TERM -s "$p" 2>/dev/null || kill -TERM -- "-$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null
+            fi
+            rm -f "$f"
+        done
+    fi
+    printf 'STATUS=ok\n'
+    exit 0
+fi
+
+# Run in a session of our own, so that "stop" can end this check with everything it started.
+if [ -z "${GCW_SESSION:-}" ] && command -v setsid >/dev/null 2>&1; then
+    export GCW_SESSION=1
+    exec setsid -w bash "$0" "$@"
+fi
+if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "${XDG_RUNTIME_DIR:-}" ] && [ -n "${GCW_SESSION:-}" ]; then
+    RUNFILE="$XDG_RUNTIME_DIR/gcw-check-$$.run"
+    : > "$RUNFILE"
+    trap 'rm -f "$RUNFILE"' EXIT
+    trap 'exit 143' TERM INT HUP
+fi
 
 fail() {
     local msg
@@ -33,51 +79,24 @@ BRANCH="${GCW_BRANCH:-}"
 KEY=$(expand "${GCW_KEY:-}")
 TOKEN_FILE=$(expand "${GCW_TOKEN_FILE:-}")
 LIMIT="${GCW_LIMIT:-50}"
+case "$LIMIT" in
+    "" | *[!0-9]*) LIMIT=50 ;;
+esac
 
 [ -n "$REPO" ] || fail "No repository configured."
 command -v git >/dev/null 2>&1 || fail "git is not installed."
 
+# Time limits: short for questions to the remote, longer for downloads (the first fetch of a big
+# repository can take a while; the widget shows its progress).
 TO=()
-command -v timeout >/dev/null 2>&1 && TO=(timeout 90)
-
-# Never block waiting for a password or a host-key prompt.
-export GIT_TERMINAL_PROMPT=0
-SSH="ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new"
-if [ -n "$KEY" ]; then
-    [ -r "$KEY" ] || fail "SSH key is not readable: $KEY"
-    # Is the key protected by a passphrase, and is it unlocked in an ssh-agent?
-    AOUT=$(GCW_KEY="$KEY" bash "$(dirname "$0")/agent.sh" status 2>/dev/null)
-    KSTATE=$(printf '%s\n' "$AOUT" | sed -n 's/^KEY=//p')
-    ASOCK=$(printf '%s\n' "$AOUT" | sed -n 's/^AGENT=//p')
-    AFP=$(printf '%s\n' "$AOUT" | sed -n 's/^FP=//p')
-    case "$KSTATE" in
-        locked)
-            printf 'STATUS=error\nCODE=locked\nMSG=%s\n' \
-                "The SSH key is protected by a passphrase and is locked. Unlock it to start watching."
-            exit 0
-            ;;
-        unlocked)
-            export SSH_AUTH_SOCK="$ASOCK"
-            # The agent may hold several keys (other repositories, your own keys): offer only this
-            # one. That needs its public part; if it is unknown, let the agent offer its keys.
-            [ -n "$AFP" ] && SSH="$SSH -i '$KEY' -o IdentitiesOnly=yes"
-            ;;
-        *)
-            SSH="$SSH -i '$KEY' -o IdentitiesOnly=yes"
-            ;;
-    esac
+TOF=()
+if command -v timeout >/dev/null 2>&1; then
+    TO=(timeout 90)
+    TOF=(timeout 600)
 fi
-export GIT_SSH_COMMAND="$SSH"
 
-# Optional HTTPS token, passed through the environment so it never shows up in `ps`.
-if [ -n "$TOKEN_FILE" ]; then
-    [ -r "$TOKEN_FILE" ] || fail "Token file is not readable: $TOKEN_FILE"
-    TOKEN=$(head -n1 "$TOKEN_FILE" | tr -d '\r\n ')
-    AUTH=$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')
-    export GIT_CONFIG_COUNT=1
-    export GIT_CONFIG_KEY_0="http.extraHeader"
-    export GIT_CONFIG_VALUE_0="Authorization: Basic $AUTH"
-fi
+# shellcheck source=auth.sh
+. "$(dirname "$0")/auth.sh"
 
 run_git() { "${TO[@]}" git -C "$DIR" "$@" 2>&1; }
 
@@ -94,29 +113,36 @@ if [ -z "$RUN" ] || [ ! -d "$RUN" ] || [ -z "$HAVE_FLOCK" ]; then
     CYCLE=""
 fi
 
-# Runs "$@" (a git command that talks to the remote) once per round: the first check of the round
-# runs it, the others wait for it and get its saved result, also when it failed. $1 names the lock
-# and $2 the saved result; the output of the command is printed, and the exit status is the one of
-# the command. The lock also makes fetches of one clone take turns (git does not like them in
+PROGRESS=""
+PID_="${GCW_PROGRESS_ID:-}"
+case "$PID_" in
+    "" | *[!0-9a-zA-Z_-]*) ;;
+    *) [ -n "$RUN" ] && [ -d "$RUN" ] && PROGRESS="$RUN/gcw-progress-$PID_.txt" ;;
+esac
+
+# Runs "$@" (a command that talks to the remote) once per round: the first check of the round runs
+# it, the others wait for it and get its saved result, also when it failed. $1 names the lock and $2
+# the saved result; the output of the command is printed, and the exit status is the one of the
+# command. The lock also makes fetches of one repository take turns (git does not like them in
 # parallel).
 once_per_round() {
     local lockname="$1" name="$2" state lock
     shift 2
     if [ -z "$RUN" ] || [ -z "$HAVE_FLOCK" ]; then
-        "${TO[@]}" "$@" 2>&1
+        "$@" 2>&1
         return
     fi
     state="$RUN/gcw-$name.state"
     lock="$RUN/gcw-$lockname.lock"
     (
-        flock -w 120 9 || { printf '%s' "Timed out waiting for another check of this repository."; exit 1; }
+        flock -w 660 9 || { printf '%s' "Timed out waiting for another check of this repository."; exit 1; }
         if [ -n "$CYCLE" ]; then
             case "$(head -n1 "$state" 2>/dev/null)" in
                 "$CYCLE ok") tail -n +2 "$state"; exit 0 ;;
                 "$CYCLE failed") tail -n +2 "$state"; exit 1 ;;
             esac
         fi
-        out=$("${TO[@]}" "$@" 2>&1)
+        out=$("$@" 2>&1)
         rc=$?
         if [ -n "$CYCLE" ]; then
             if [ "$rc" -eq 0 ]; then
@@ -135,17 +161,88 @@ state_name() {
     printf '%s|%s|%s' "$1" "$KEY" "$TOKEN_FILE" | sha1sum | cut -c1-16
 }
 
+# Runs "git fetch" in the repository $1 with the other arguments. With a progress file, git's
+# progress goes there while it runs (the widget shows it), and on failure git's messages are printed.
+net_fetch() {
+    local dir="$1" rc
+    shift
+    if [ -z "$PROGRESS" ]; then
+        "${TOF[@]}" git -C "$dir" fetch --quiet "$@" 2>&1
+        return
+    fi
+    "${TOF[@]}" git -C "$dir" fetch --progress "$@" >/dev/null 2>"$PROGRESS"
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        tr '\r' '\n' < "$PROGRESS" | grep -v '^[[:space:]]*$' \
+            | grep -Ev '[0-9]+% \(|^remote: (Enumerating|Counting|Compressing|Total)|^From |^ [*+=!-] ' | tail -n 4
+        [ "$rc" -eq 124 ] && printf '%s\n' "The download took longer than 10 minutes."
+    fi
+    rm -f "$PROGRESS"
+    return "$rc"
+}
+
 # Fetches the local clone $DIR ("$@": the remote, or nothing for the default one).
 fetch_clone() {
     once_per_round "$(printf '%s' "$DIR" | sha1sum | cut -c1-12)" "$(state_name "fetch|$DIR|$*")" \
-        git -C "$DIR" fetch --quiet --no-tags "$@"
+        net_fetch "$DIR" --no-tags "$@"
 }
 
 # Prints the branch tips of the remote URL $REPO: "<commit>\trefs/heads/<branch>" lines.
 remote_heads() {
     local name
     name=$(state_name "heads|$REPO")
-    once_per_round "$name" "$name" git ls-remote --heads "$REPO"
+    once_per_round "$name" "$name" "${TO[@]}" git ls-remote --heads "$REPO"
+}
+
+# Creates the cache repository $DIR for the remote URL $REPO, or fixes its settings.
+prepare_cache() {
+    mkdir -p "$DIR" || return 1
+    if [ ! -f "$DIR/HEAD" ]; then
+        git init --bare --quiet "$DIR" || return 1
+    fi
+    if [ "$(git -C "$DIR" config --get extensions.partialClone)" != "origin" ] \
+        || [ "$(git -C "$DIR" config --get remote.origin.url)" != "$REPO" ]; then
+        git -C "$DIR" config core.repositoryformatversion 1 \
+            && git -C "$DIR" config extensions.partialClone origin \
+            && git -C "$DIR" config remote.origin.url "$REPO" \
+            && git -C "$DIR" config remote.origin.promisor true \
+            && git -C "$DIR" config remote.origin.partialclonefilter blob:none \
+            || return 1
+    fi
+    touch "$DIR/gcw-used" 2>/dev/null
+    return 0
+}
+
+# Fetches the given refspecs into the cache repository: the last LIMIT+1 commits (the extra one is
+# the parent of the oldest listed commit, so that its changes can be shown), without file contents.
+fetch_cache() {
+    net_fetch "$DIR" --no-tags --depth="$((LIMIT + 1))" --filter=blob:none origin "$@"
+}
+
+# The first check of a round: fetches every watched branch whose tip on the remote ($HEADS) is not
+# in the cache yet, in one go.
+fetch_watched() {
+    local specs=() b tip have
+    for b in $BRANCHES; do
+        git check-ref-format "refs/heads/$b" 2>/dev/null || continue
+        tip=$(printf '%s\n' "$HEADS" | awk -v ref="refs/heads/$b" '$2 == ref { print $1; exit }')
+        [ -n "$tip" ] || continue
+        have=$(git -C "$DIR" rev-parse --verify --quiet "refs/gcw/tips/$b^{commit}")
+        [ "$tip" = "$have" ] || specs+=("+refs/heads/$b:refs/gcw/tips/$b")
+    done
+    [ "${#specs[@]}" -gt 0 ] || return 0
+    fetch_cache "${specs[@]}"
+}
+
+# Removes caches that are no longer used: the per-branch caches of version 1.3 and older (folders with
+# 12-character names directly in the cache folder) and cache repositories unused for 30 days.
+cleanup_caches() {
+    local base="${XDG_CACHE_HOME:-$HOME/.cache}/gitcommitwatcher"
+    [ -d "$base" ] || return 0
+    find "$base" -mindepth 1 -maxdepth 1 -type d -name '????????????' -exec test -f '{}/HEAD' ';' \
+        -exec rm -rf '{}' + 2>/dev/null
+    find "$base/repos" -mindepth 2 -maxdepth 2 -name gcw-used -mtime +30 -printf '%h\0' 2>/dev/null \
+        | xargs -0 -r rm -rf
 }
 
 # Mode "branches": only list the branches of the repository (for the ALL / pattern setting).
@@ -182,27 +279,37 @@ if [ -d "$REPO" ]; then
     fi
     URL=$(git -C "$DIR" remote get-url origin 2>/dev/null)
 else
-    # --- Remote URL: keep a small shallow cache repository of our own ---
-    HASHED=$(printf '%s|%s' "$REPO" "$BRANCH" | sha1sum | cut -c1-12)
-    DIR="${XDG_CACHE_HOME:-$HOME/.cache}/gitcommitwatcher/$HASHED"
-    mkdir -p "$DIR" || fail "Cannot create cache directory $DIR"
-    [ -d "$DIR/objects" ] || git init --bare --quiet "$DIR" || fail "Cannot initialise cache repository"
-    REF="HEAD"
-    [ -n "$BRANCH" ] && REF="refs/heads/$BRANCH"
-    # In a round, ask the remote once for the tips of all branches; a branch whose tip is already in
-    # the cache needs no fetch of its own.
-    REMOTE_TIP=""
-    if [ -n "$BRANCH" ] && [ -n "$CYCLE" ]; then
-        OUT=$(remote_heads) || fail "git ls-remote failed: $OUT"
-        REMOTE_TIP=$(printf '%s\n' "$OUT" | awk -v ref="$REF" '$2 == ref { print $1; exit }')
-        [ -n "$REMOTE_TIP" ] || fail "Branch not found: $BRANCH"
+    # --- Remote URL: the cache repository of this URL, shared by its branches ---
+    DIR=$(cache_dir_of "$REPO")
+    LOCKNAME=$(printf '%s' "$DIR" | sha1sum | cut -c1-12)
+    if [ -n "$RUN" ] && [ -n "$HAVE_FLOCK" ]; then
+        ( flock -n 8 && cleanup_caches ) 8>"$RUN/gcw-cleanup.lock"
+    else
+        cleanup_caches
     fi
-    LOCAL_TIP=$(git -C "$DIR" rev-parse --verify --quiet "refs/gcw/tip^{commit}")
-    if [ -z "$REMOTE_TIP" ] || [ "$REMOTE_TIP" != "$LOCAL_TIP" ]; then
-        OUT=$(run_git fetch --quiet --no-tags --depth="$LIMIT" "$REPO" "+$REF:refs/gcw/tip") \
+    OUT=$(once_per_round "$LOCKNAME" "$(state_name "prepare|$DIR")" prepare_cache) \
+        || fail "Cannot create the cache repository $DIR: $OUT"
+    if [ -n "$BRANCH" ]; then
+        git check-ref-format "refs/heads/$BRANCH" 2>/dev/null || fail "Invalid branch name: $BRANCH"
+        REF="refs/heads/$BRANCH"
+        TIPREF="refs/gcw/tips/$BRANCH"
+    else
+        REF="HEAD"
+        TIPREF="refs/gcw/head"
+    fi
+    if [ -n "$BRANCH" ] && [ -n "$CYCLE" ]; then
+        # In a round, ask the remote once for the tips of all branches, and let the first check fetch
+        # the new commits of all watched branches.
+        HEADS=$(remote_heads) || fail "git ls-remote failed: $HEADS"
+        printf '%s\n' "$HEADS" | awk -v ref="$REF" '$2 == ref { found = 1 } END { exit !found }' \
+            || fail "Branch not found: $BRANCH"
+        BRANCHES="$BRANCH ${GCW_BRANCHES:-}"
+        OUT=$(once_per_round "$LOCKNAME" "$(state_name "fetch|$REPO")" fetch_watched) \
+            || fail "git fetch failed: $OUT"
+    else
+        OUT=$(once_per_round "$LOCKNAME" "$(state_name "fetch|$REPO|$REF")" fetch_cache "+$REF:$TIPREF") \
             || fail "git fetch failed: $OUT"
     fi
-    TIPREF="refs/gcw/tip"
     URL="$REPO"
 fi
 

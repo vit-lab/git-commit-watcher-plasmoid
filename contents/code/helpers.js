@@ -225,19 +225,23 @@ function repoDisplayName(r) {
     return (r && (r.name || repoName(r.path))) || "";
 }
 
+// o = { repo, hash, key, tokenFile }: the key and token let git download the changed files of a
+// repository watched by URL (its cache has no file contents).
 function diffCommand(script, o) {
     return "GCW_REPO=" + q(o.repo)
-        + " GCW_BRANCH=" + q(o.branch)
         + " GCW_HASH=" + q(o.hash)
+        + " GCW_KEY=" + q(o.key)
+        + " GCW_TOKEN_FILE=" + q(o.tokenFile)
         + " bash " + q(script) + uniq();
 }
 
-// Saves one file of a commit to the widget cache (openfile.sh); o = { repo, branch, hash, path }.
+// Saves one file of a commit to the widget cache (openfile.sh); o = { repo, hash, path, key, tokenFile }.
 function openFileCommand(script, o) {
     return "GCW_REPO=" + q(o.repo)
-        + " GCW_BRANCH=" + q(o.branch)
         + " GCW_HASH=" + q(o.hash)
         + " GCW_PATH=" + q(o.path)
+        + " GCW_KEY=" + q(o.key)
+        + " GCW_TOKEN_FILE=" + q(o.tokenFile)
         + " bash " + q(script) + uniq();
 }
 
@@ -583,14 +587,23 @@ function metaHtml(c, prefix, col) {
 }
 
 // o.cycle (optional): the id of the check round; checks with the same id share one fetch (see check.sh).
+// o.branches (optional): all watched branches of the repository, fetched together in a round.
+// o.progressId (optional): the name of the progress file of the repository (see progressKey).
 function checkCommand(script, o) {
     return (o.cycle ? "GCW_CYCLE=" + q(o.cycle) + " " : "")
+        + (o.branches && o.branches.length ? "GCW_BRANCHES=" + q(o.branches.join(" ")) + " " : "")
+        + (o.progressId ? "GCW_PROGRESS_ID=" + q(o.progressId) + " " : "")
         + "GCW_REPO=" + q(o.repo)
         + " GCW_BRANCH=" + q(o.branch)
         + " GCW_KEY=" + q(o.key)
         + " GCW_TOKEN_FILE=" + q(o.tokenFile)
         + " GCW_LIMIT=" + (o.limit || 50)
         + " bash " + q(script) + uniq();
+}
+
+// Stops all running checks, with their git processes (check.sh, mode "stop").
+function stopCommand(script) {
+    return "GCW_MODE=stop bash " + q(script) + uniq();
 }
 
 // action: "status" | "unlock" | "lock"; o = { key, lifetime (seconds) }
@@ -710,4 +723,67 @@ function commitsSince(list, hash) {
         }
     }
     return { list: list, overflow: list.length > 0 };
+}
+
+// ------------------------------------------------------------- download progress
+
+// The name of the progress file of a repository setting (check.sh accepts letters, digits, - and _).
+function progressKey(id) {
+    return String(id).replace(/[^0-9A-Za-z_-]/g, "_");
+}
+
+// Prints the last line of every progress file: "P<US>key<US>line" (see check.sh, net_fetch).
+function progressCommand() {
+    return 'd="${XDG_RUNTIME_DIR:-}"; [ -n "$d" ] || exit 0; '
+        + 'for f in "$d"/gcw-progress-*.txt; do [ -f "$f" ] || continue; '
+        + 'n="${f##*/gcw-progress-}"; '
+        + 'printf \'P\\037%s\\037%s\\n\' "${n%.txt}" "$(tail -c 400 "$f" | tr \'\\r\' \'\\n\' | grep -v \'^[[:space:]]*$\' | tail -n 1)"; '
+        + 'done' + uniq();
+}
+
+// Returns { key: line } from the output of progressCommand.
+function parseProgressList(stdout) {
+    var out = {};
+    var lines = String(stdout || "").split("\n");
+    for (var i = 0; i < lines.length; ++i) {
+        var parts = lines[i].split(US);
+        if (parts.length >= 3 && parts[0] === "P" && parts[1] !== "") {
+            out[parts[1]] = parts.slice(2).join(US).trim();
+        }
+    }
+    return out;
+}
+
+// Reads one progress line of git, for example
+//   "Receiving objects:  37% (456/1234), 1.20 MiB | 2.00 MiB/s"
+//   "remote: Compressing objects:  45% (500/1100)"
+// Returns { phase: "connect" | "server" | "download" | "unpack", percent (-1 = unknown), size, speed }.
+function parseGitProgress(line) {
+    var res = { phase: "connect", percent: -1, size: "", speed: "" };
+    var text = String(line || "").replace(/^remote:\s*/, "").trim();
+    var m = /^([A-Za-z][A-Za-z ]*?):\s+(\d+)%(?:\s*\((\d+)\/(\d+)\))?(?:,\s*([\d.]+\s*[KMGT]?i?B)(?!\/s))?(?:\s*\|\s*([\d.]+\s*[KMGT]?i?B\/s))?/.exec(text);
+    var name = m ? m[1] : (/^([A-Za-z][A-Za-z ]*?):/.exec(text) || [])[1] || "";
+    if (/Receiving/.test(name)) {
+        res.phase = "download";
+    } else if (/Resolving|Checking|Updating/.test(name)) {
+        res.phase = "unpack";
+    } else if (/Enumerating|Counting|Compressing|Finding|Total/.test(name)) {
+        res.phase = "server";
+    } else if (/^From |->/.test(text)) {
+        res.phase = "unpack";  // the last lines: the branches are being updated
+    }
+    if (m) {
+        res.percent = Math.max(0, Math.min(100, parseInt(m[2], 10)));
+        res.size = m[5] ? m[5].replace(/\s+/, " ") : "";
+        res.speed = m[6] ? m[6].replace(/\s+/, " ") : "";
+    }
+    return res;
+}
+
+// A rough time left in seconds (-1 = not known yet): "done" percent took elapsedMs, "left" percent remain.
+function etaSeconds(elapsedMs, done, left) {
+    if (done < 3 || left <= 0 || elapsedMs < 3000) {
+        return -1;
+    }
+    return Math.round(elapsedMs / 1000 * left / done);
 }
