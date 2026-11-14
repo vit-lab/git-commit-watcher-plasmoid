@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.4] - 2026-11-14
+
+### Added
+
+- Download progress: while a check downloads, the popup shows what is happening (preparing on the server,
+  downloading with the size so far, the speed and the time left, unpacking), with a progress bar in the empty
+  list and a line in the footer, instead of only "Checking…".
+- Stop button: while a check runs, the refresh button in the header (and "Check now" in the context menu)
+  stops it, for a check that hangs. The running git, ssh and timeout processes are ended too; a repository
+  without commits yet says that its check was stopped, and the button then starts a new check.
+
+### Changed
+
+- Repositories watched by URL download much less: one small copy per URL is shared by all its branches (it
+  was one per branch), and it holds only the recent commits and folder listings. The files of a commit are
+  downloaded when its changes are opened. The first check of SuperTux with 30 branches went from up to 30
+  downloads of about 270 MB each to one of about 3 MB, in seconds.
+- In a check, the new commits of all watched branches of a repository are downloaded in one go.
+- The copies made by earlier versions (one per branch, in `~/.cache/gitcommitwatcher/`) are deleted, and a
+  copy that has not been used for 30 days is deleted too.
+- Downloads may take up to 10 minutes (it was 90 seconds), so the first check of a big local clone no longer
+  fails; questions to the server still time out after 90 seconds.
+
+- A line separates the branch rows (and warnings) from the commit list, so the first commit no longer
+  seems to belong to the rows above it.
+
+### Fixed
+
+- The changes of the oldest downloaded commit were shown as if it added every file of the repository. The
+  widget now downloads one commit more than it lists, and for the oldest one it says that its changes cannot
+  be shown.
+
 ## [1.3] - 2026-11-14
 
 ### Added
@@ -143,7 +175,8 @@ First public release.
   Local File…*), and `scripts/package.sh` to build it from the source.
 - Documentation: `README.md`, `SECURITY.md`, this changelog and issue templates.
 
-[Unreleased]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.3...HEAD
+[Unreleased]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.4...HEAD
+[1.4]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.3...v1.4
 [1.3]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.2...v1.3
 [1.2]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.1...v1.2
 [1.1]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.0...v1.1

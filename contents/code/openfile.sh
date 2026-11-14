@@ -3,7 +3,8 @@
 # cache folder, so that it can be opened with the default application. Read-only for the
 # repository: nothing is written to it, and the working tree is not touched.
 #
-# Input (environment): GCW_REPO, GCW_BRANCH, GCW_HASH, GCW_PATH (path inside the repository)
+# Input (environment): GCW_REPO, GCW_HASH, GCW_PATH (path inside the repository), GCW_KEY,
+#   GCW_TOKEN_FILE (for a remote URL, whose cache may not have the file yet: git downloads it).
 # Output: "STATUS=ok" and "FILE=<absolute path of the copy>", or "STATUS=error" / "MSG=<text>".
 
 fail() {
@@ -22,8 +23,9 @@ expand() {
 }
 
 REPO=$(expand "${GCW_REPO:-}")
-BRANCH="${GCW_BRANCH:-}"
 HASH="${GCW_HASH:-}"
+KEY=$(expand "${GCW_KEY:-}")
+TOKEN_FILE=$(expand "${GCW_TOKEN_FILE:-}")
 P="${GCW_PATH:-}"
 
 [ -n "$REPO" ] || fail "No repository configured."
@@ -40,8 +42,10 @@ command -v git >/dev/null 2>&1 || fail "git is not installed."
 if [ -d "$REPO" ]; then
     DIR="$REPO"
 else
-    HASHED=$(printf '%s|%s' "$REPO" "$BRANCH" | sha1sum | cut -c1-12)
-    DIR="${XDG_CACHE_HOME:-$HOME/.cache}/gitcommitwatcher/$HASHED"
+    AUTH_SOFT=1
+    # shellcheck source=auth.sh
+    . "$(dirname "$0")/auth.sh"
+    DIR=$(cache_dir_of "$REPO")
     [ -d "$DIR/objects" ] || fail "No cached data for this repository yet."
 fi
 
