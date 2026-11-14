@@ -82,13 +82,13 @@ search for "Git Commit Watcher". The store page also offers the `.plasmoid` file
 
 ### From the release package
 
-Download `git-commit-watcher-1.3.plasmoid` from the
+Download `git-commit-watcher-1.4.plasmoid` from the
 [latest release](https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/latest). Use the file listed
 under Assets; the automatic "Source code" archives are not installable packages.
 
 ```sh
-curl -LO https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/download/v1.3/git-commit-watcher-1.3.plasmoid
-kpackagetool6 -t Plasma/Applet -i git-commit-watcher-1.3.plasmoid
+curl -LO https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/download/v1.4/git-commit-watcher-1.4.plasmoid
+kpackagetool6 -t Plasma/Applet -i git-commit-watcher-1.4.plasmoid
 ```
 
 The package can also be installed from the widget explorer: right-click the panel or desktop, open
@@ -102,7 +102,7 @@ The installed version and the checksum of the downloaded file can be checked wit
 
 ```sh
 grep Version ~/.local/share/plasma/plasmoids/local.gitcommitwatcher/metadata.json
-sha256sum git-commit-watcher-1.3.plasmoid
+sha256sum git-commit-watcher-1.4.plasmoid
 ```
 
 If the release notes list a SHA-256 checksum, it should match the output of the second command.

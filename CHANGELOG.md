@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.4] - 2026-11-14
+
 ### Added
 
 - Download progress: while a check downloads, the popup shows what is happening (preparing on the server,
@@ -173,7 +175,8 @@ First public release.
   Local File…*), and `scripts/package.sh` to build it from the source.
 - Documentation: `README.md`, `SECURITY.md`, this changelog and issue templates.
 
-[Unreleased]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.3...HEAD
+[Unreleased]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.4...HEAD
+[1.4]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.3...v1.4
 [1.3]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.2...v1.3
 [1.2]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.1...v1.2
 [1.1]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.0...v1.1
