@@ -1,11 +1,13 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Templates as T
 import org.kde.plasma.plasmoid
 import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.components as PlasmaComponents
 import org.kde.plasma.extras as PlasmaExtras
 import org.kde.plasma.plasma5support as Plasma5Support
 import org.kde.kirigami as Kirigami
+import org.kde.ksvg as KSvg
 import "../code/helpers.js" as Helpers
 
 PlasmoidItem {
@@ -30,14 +32,24 @@ PlasmoidItem {
     property var unlockingKeys: ({})     // key path -> true while a passphrase dialog is open
     property int rev: 0                  // bumped after every change of the data above
 
-    property string currentTab: "all"    // "all", or "p:<repository id>" (the repository selector)
-    property string currentBranch: ""    // "" = all branches of the chosen repository, else the id of one branch entry
-    property var branchModel: []         // entries of the branch switcher: {id, text}
-    property string branchSig: ""
+    // What the popup shows; both are remembered in the settings (filterRepos, filterBranches).
+    // selRepos: ids of repository settings; [] = all repositories, ["-"] = none.
+    // selBranches: ids of branch entries; for a repository none of whose branches is in it, all its
+    // branches are shown, unless it holds "<repository id>#none" (none of its branches).
+    property var selRepos: []
+    property var selBranches: []
+    property var repoChips: []           // the repository chips: {id, text, count, color}
+    property string repoChipsSig: ""
+    property var branchGroups: []        // the branch rows, per shown repository with several branches:
+    property string branchGroupsSig: ""  // {id, name, color, branches: [{id, text}]}
+    property int viewRepoCount: 0        // repositories and branch entries in the list right now
+    property int viewUnitCount: 0
     property var displayCommits: []
     property var problems: []
-    property var tabModel: []
-    property string tabSig: ""
+    property string displaySig: ""       // what displayCommits shows; the list is replaced only when it changes
+    property string problemsSig: ""
+    property string cycle: ""            // id of the current check round (see check.sh, GCW_CYCLE)
+    property int cycleCount: 0
 
     property var diffCommit: null
     property var diffLines: []
@@ -62,25 +74,24 @@ PlasmoidItem {
     readonly property bool anyOverflow: { root.rev; return anyState("overflow"); }
     readonly property bool anyChecking: { root.rev; return anyState("checking"); }
     readonly property bool anyLocked: { root.rev; return anyState("locked"); }
-    readonly property bool showAllTab: { root.rev; return parentCount() > 1; }
-    // The branches of the chosen repository (more than one: the branch switcher is shown).
-    readonly property var branchUnits: {
-        root.rev;
-        if (!showAllTab) {
-            return repoList;
+    readonly property bool showRepoBar: { root.rev; return parentCount() > 1; }
+    // The text of the repository drop-down: "All repositories", or the names of the chosen ones.
+    readonly property string repoSummary: {
+        if (selRepos.length === 0) {
+            return totalUnread > 0 ? i18n("All repositories (%1)", totalUnread) : i18n("All repositories");
         }
-        return currentTab.indexOf("p:") === 0 ? parentUnits(currentTab.slice(2)) : [];
-    }
-    readonly property bool showBranchBar: branchUnits.length > 1
-    readonly property int tabIndex: {
-        var t = root.tabModel;
-        for (var i = 0; i < t.length; ++i) {
-            if (t[i].id === root.currentTab) {
-                return i;
+        if (selRepos.indexOf("-") >= 0) {
+            return i18n("No repository chosen");
+        }
+        var names = [];
+        for (var i = 0; i < repoChips.length; ++i) {
+            if (selRepos.indexOf(repoChips[i].id) >= 0) {
+                names.push(repoChips[i].text);
             }
         }
-        return 0;
+        return names.join(", ");
     }
+    readonly property bool showBranchBar: branchGroups.length > 0
     readonly property string headerTitle: { root.rev; return parentCount() === 1 ? repoList[0].baseName : i18n("Git Commit Watcher"); }
 
     // Re-read the repository list whenever the setting changes (e.g. after "Apply").
@@ -149,6 +160,16 @@ PlasmoidItem {
         author: Kirigami.Theme.linkColor.toString(),
         muted: mix(Kirigami.Theme.textColor, 0.6)
     })
+    // The color of each repository's name in the "All repositories" list: repository id -> "#rrggbb",
+    // handed out by the position of the repository in the settings.
+    readonly property var repoColors: {
+        var bg = Kirigami.Theme.backgroundColor;
+        var m = {};
+        for (var i = 0; i < parsedRepos.length; ++i) {
+            m[parsedRepos[i].id] = Helpers.repoColor(i, bg.r, bg.g, bg.b);
+        }
+        return m;
+    }
     readonly property var diffMarks: Helpers.diffFileMarks(diffLines)      // where the "Open File" buttons go
     readonly property string diffHtml: diffLines.length > 0 ? Helpers.diffToHtml(diffLines, diffPalette) : ""
 
@@ -464,9 +485,27 @@ PlasmoidItem {
         return false;
     }
 
+    // Something changed. The numbers (badge, tooltip, busy indicator) follow at once. The list in the
+    // popup is rebuilt a moment later, once for everything that arrives together: a check round reports
+    // every watched branch on its own, and a rebuild for each of them made the popup stutter.
     function bump() {
         rev++;
+        if (!displayTimer.running) {
+            displayTimer.start();
+        }
+    }
+
+    // The same, with the list rebuilt at once (for things the user has just done).
+    function bumpNow() {
+        rev++;
+        displayTimer.stop();
         buildDisplay();
+    }
+
+    Timer {
+        id: displayTimer
+        interval: 150
+        onTriggered: root.buildDisplay()
     }
 
     function loadSaved() {
@@ -544,25 +583,31 @@ PlasmoidItem {
             }
         }
         repoList = list;
-        if (currentTab !== "all" && !(currentTab.indexOf("p:") === 0 && parentUnits(currentTab.slice(2)).length > 0)) {
-            currentTab = "all";
-        }
-        if (currentBranch !== "" && !keep[currentBranch]) {
-            currentBranch = "";
-        }
+        // The remembered selection, without repositories and branches that are not watched (any more).
+        var stored = parseIdList(cfg.filterRepos);
+        var sr = stored.filter(function(x) { return parentUnits(x).length > 0; });
+        selRepos = stored.indexOf("-") >= 0 ? ["-"] : (sr.length >= parentCount() ? [] : sr);
+        selBranches = parseIdList(cfg.filterBranches).filter(function(x) {
+            return keep[x] === true || (/#none$/.test(x) && parentUnits(x.slice(0, -5)).length > 0);
+        });
         for (var j = 0; j < list.length; ++j) {
             updateUnread(list[j].id);
         }
-        bump();
+        bumpNow();
     }
 
-    // The text before the hash in a list row: the repository (and branches) in "All repositories",
-    // the branches in "All branches" of one repository, nothing when a single branch is shown.
+    // What stands before the hash in a list row (see Helpers.metaHtml): with several repositories in the
+    // list, the name of the repository in its own color, followed by its branches; with several branches
+    // of one repository, the branches; nothing when the list shows a single branch.
     function rowPrefix(c) {
-        if (showAllTab && currentTab === "all") {
-            return c.repoName;
+        if (viewRepoCount > 1) {
+            return {
+                name: c.repoBase,
+                rest: c.multi ? " (" + c.branchLabel + ")" : "",
+                color: repoColors[c.parentId] || ""
+            };
         }
-        if (showBranchBar && currentBranch === "") {
+        if (viewUnitCount > 1) {
             return c.branchLabel;
         }
         return "";
@@ -598,32 +643,134 @@ PlasmoidItem {
 
     // ----------------------------------------------------- display model
 
-    function effectiveIds() {
-        var ids = [];
-        var scope = repoList;
-        if (showAllTab && currentTab.indexOf("p:") === 0) {
-            scope = parentUnits(currentTab.slice(2));
+    // ---------------------------------------- selection of repositories and branches
+
+    function parseIdList(json) {
+        try {
+            var a = JSON.parse(json || "[]");
+            return Array.isArray(a) ? a.filter(function(x) { return typeof x === "string" && x !== ""; }) : [];
+        } catch (e) {
+            return [];
         }
-        var one = "";
-        if (scope.length > 1 && currentBranch !== "") {
-            for (var j = 0; j < scope.length; ++j) {
-                if (scope[j].id === currentBranch) {
-                    one = currentBranch;
+    }
+
+    function repoShown(pid) {
+        return !showRepoBar || selRepos.length === 0 || selRepos.indexOf(pid) >= 0;
+    }
+
+    // The ids of the repositories that are shown.
+    function shownRepoIds() {
+        var out = [];
+        var seen = {};
+        for (var i = 0; i < repoList.length; ++i) {
+            var pid = repoList[i].parentId;
+            if (!seen[pid]) {
+                seen[pid] = true;
+                if (repoShown(pid)) {
+                    out.push(pid);
                 }
             }
         }
-        if (one !== "") {
-            ids.push(one);
-        } else {
-            for (var i = 0; i < scope.length; ++i) {
-                ids.push(scope[i].id);
+        return out;
+    }
+
+    // The branch entries of a repository that the list shows: the chosen ones, all if none is chosen,
+    // or none.
+    function shownUnits(pid) {
+        if (selBranches.indexOf(pid + "#none") >= 0) {
+            return [];
+        }
+        var all = parentUnits(pid);
+        var chosen = all.filter(function(u) { return selBranches.indexOf(u.id) >= 0; });
+        return chosen.length > 0 ? chosen : all;
+    }
+
+    // The ids of the branch entries whose commits the list shows.
+    function effectiveIds() {
+        var ids = [];
+        var seen = {};
+        for (var i = 0; i < repoList.length; ++i) {
+            var pid = repoList[i].parentId;
+            if (seen[pid] || !repoShown(pid)) {
+                continue;
+            }
+            seen[pid] = true;
+            var su = shownUnits(pid);
+            for (var k = 0; k < su.length; ++k) {
+                ids.push(su[k].id);
             }
         }
         return ids;
     }
 
+    function setSelection(repos, branches) {
+        selRepos = repos;
+        selBranches = branches;
+        var r = JSON.stringify(repos);
+        var b = JSON.stringify(branches);
+        if (cfg.filterRepos !== r) {
+            cfg.filterRepos = r;
+        }
+        if (cfg.filterBranches !== b) {
+            cfg.filterBranches = b;
+        }
+        closeDiff();
+        bumpNow();
+    }
+
+    // A click on a repository in the list (pid) shows it or hides it. A click on "All repositories" ("")
+    // shows all of them, or none if all were shown. The check boxes always show what the list shows.
+    function toggleRepo(pid) {
+        var all = [];
+        var seen = {};
+        for (var i = 0; i < repoList.length; ++i) {
+            if (!seen[repoList[i].parentId]) {
+                seen[repoList[i].parentId] = true;
+                all.push(repoList[i].parentId);
+            }
+        }
+        var shown = shownRepoIds();
+        if (pid === "") {
+            shown = shown.length === all.length ? [] : all.slice();
+        } else if (shown.indexOf(pid) >= 0) {
+            shown = shown.filter(function(x) { return x !== pid; });
+        } else {
+            shown.push(pid);
+        }
+        // Stored: [] = all (so a repository that is added later is shown too), ["-"] = none.
+        setSelection(shown.length === all.length ? [] : (shown.length === 0 ? ["-"] : shown), selBranches);
+    }
+
+    // The same for the branches of repository pid (uid: the id of a branch entry, "" = "All branches").
+    function toggleBranch(pid, uid) {
+        var inRepo = parentUnits(pid).map(function(u) { return u.id; });
+        var others = selBranches.filter(function(x) { return inRepo.indexOf(x) < 0 && x !== pid + "#none"; });
+        var shown = shownUnits(pid).map(function(u) { return u.id; });
+        if (uid === "") {
+            shown = shown.length === inRepo.length ? [] : inRepo.slice();
+        } else if (shown.indexOf(uid) >= 0) {
+            shown = shown.filter(function(x) { return x !== uid; });
+        } else {
+            shown.push(uid);
+        }
+        // Stored: nothing = all branches (so a branch found later is shown too), "<id>#none" = none.
+        var mine = shown.length === inRepo.length ? [] : (shown.length === 0 ? [pid + "#none"] : shown);
+        setSelection(selRepos, others.concat(mine));
+    }
+
     function buildDisplay() {
         var ids = effectiveIds();
+        var viewParents = {};
+        var nParents = 0;
+        for (var v = 0; v < ids.length; ++v) {
+            var vu = repoById(ids[v]);
+            if (vu && !viewParents[vu.parentId]) {
+                viewParents[vu.parentId] = true;
+                ++nParents;
+            }
+        }
+        viewRepoCount = nParents;
+        viewUnitCount = ids.length;
         var out = [];
         var probs = [];
         var merged = {};                 // parentId|hash -> entry, for commits on several watched branches
@@ -647,7 +794,8 @@ PlasmoidItem {
                 }
                 var entry = {
                     repoId: id, repoName: nameOf(id), hash: c.hash, short: c.short, author: c.author,
-                    subject: c.subject, when: c.when, ts: c.ts, unread: i < hl, branches: [u ? u.branch : ""], branchLabel: u ? u.branch : ""
+                    subject: c.subject, when: c.when, ts: c.ts, unread: i < hl, branches: [u ? u.branch : ""], branchLabel: u ? u.branch : "",
+                    parentId: u ? u.parentId : id, repoBase: u ? u.baseName : nameOf(id), multi: !!(u && u.multi)
                 };
                 if (ids.length > 1 && u && u.multi) {
                     merged[u.parentId + "|" + c.hash] = entry;
@@ -668,53 +816,66 @@ PlasmoidItem {
                 probs.push({ id: pid2, name: Helpers.repoDisplayName(pr), msg: ds.error, locked: ds.locked });
             }
         }
-        displayCommits = out;
-        problems = probs;
-
-        // Repository selector entries; only replaced when something changed, so an open
-        // drop-down is not reset by every refresh.
-        var tabs = [];
-        if (showAllTab) {
-            tabs.push({ id: "all", text: totalUnread > 0 ? i18n("All repositories (%1)", totalUnread) : i18n("All repositories") });
-            var lastParent = "";
-            for (var j = 0; j < repoList.length; ++j) {
-                var pid = repoList[j].parentId;
-                if (pid === lastParent) {
-                    continue;
-                }
-                lastParent = pid;
-                var un = sumUnread(pid);
-                var nm = repoList[j].baseName;
-                tabs.push({ id: "p:" + pid, text: un > 0 ? nm + " (" + un + ")" : nm });
-            }
+        // Replacing the model makes the list throw away and rebuild its rows, so do it only when
+        // something that is shown has changed.
+        var parts = [];
+        for (var n = 0; n < out.length; ++n) {
+            var e = out[n];
+            parts.push(e.repoId + "\t" + e.hash + "\t" + (e.unread ? 1 : 0) + "\t" + e.repoName + "\t" + e.branchLabel + "\t" + e.when);
         }
-        var sig = JSON.stringify(tabs);
-        if (sig !== tabSig) {
-            tabSig = sig;
-            tabModel = tabs;
+        var dsig = nParents + "/" + ids.length + "\n" + parts.join("\n");
+        if (dsig !== displaySig || out.length !== displayCommits.length) {
+            displaySig = dsig;
+            displayCommits = out;
+        }
+        var psig = JSON.stringify(probs);
+        if (psig !== problemsSig) {
+            problemsSig = psig;
+            problems = probs;
         }
 
-        // Branch switcher of the chosen repository.
-        var bs = [];
-        var bu = branchUnits;
-        if (bu.length > 1) {
-            var tot = sumUnread(bu[0].parentId);
-            bs.push({ id: "", text: tot > 0 ? i18n("All branches (%1)", tot) : i18n("All branches") });
-            for (var b = 0; b < bu.length; ++b) {
-                var bn = st(bu[b].id).unread;
-                bs.push({ id: bu[b].id, text: bn > 0 ? bu[b].branch + " (" + bn + ")" : bu[b].branch });
+        // The chips of the repositories and branches; replaced only when something in them changed.
+        var chips = [];
+        var groups = [];
+        var seenParent = {};
+        for (var j = 0; j < repoList.length; ++j) {
+            var pid = repoList[j].parentId;
+            if (seenParent[pid]) {
+                continue;
+            }
+            seenParent[pid] = true;
+            if (showRepoBar) {
+                chips.push({ id: pid, text: repoList[j].baseName, count: sumUnread(pid), color: repoColors[pid] || "" });
+            }
+            var pu = parentUnits(pid);
+            if (pu.length > 1 && repoShown(pid)) {
+                // Without the unread counts (they are read where they are shown): the rows are rebuilt only
+                // when the branches change, so an open branch list is not closed by a check.
+                groups.push({
+                    id: pid, name: pu[0].baseName, color: repoColors[pid] || "",
+                    branches: pu.map(function(u) { return { id: u.id, text: u.branch }; })
+                });
             }
         }
-        var bsig = JSON.stringify(bs);
-        if (bsig !== branchSig) {
-            branchSig = bsig;
-            branchModel = bs;
+        var csig = JSON.stringify(chips);
+        if (csig !== repoChipsSig) {
+            repoChipsSig = csig;
+            repoChips = chips;
+        }
+        var gsig = JSON.stringify(groups);
+        if (gsig !== branchGroupsSig) {
+            branchGroupsSig = gsig;
+            branchGroups = groups;
         }
     }
 
     // ------------------------------------------------------------- checks
 
+    // Starts a check round. All checks of a round carry the same id, so that the branches of one
+    // repository share a single fetch.
     function checkAll() {
+        cycleCount++;
+        cycle = "c" + Date.now().toString(36) + "-" + cycleCount;
         discoverAll();
         checkUnits();
     }
@@ -746,7 +907,7 @@ PlasmoidItem {
             delete discoverMap[d.cmd];
         }
         d.started = Date.now();
-        d.cmd = Helpers.branchesCommand(scriptPath, { repo: r.path, key: r.sshKey, tokenFile: r.tokenFile });
+        d.cmd = Helpers.branchesCommand(scriptPath, { repo: r.path, key: r.sshKey, tokenFile: r.tokenFile, cycle: cycle });
         discoverMap[d.cmd] = r.id;
         finder.connectSource(d.cmd);
     }
@@ -800,7 +961,7 @@ PlasmoidItem {
         s.checkState = "checking";
         s.started = Date.now();
         s.cmd = Helpers.checkCommand(scriptPath, {
-            repo: r.path, branch: r.branch, key: r.sshKey, tokenFile: r.tokenFile, limit: 50
+            repo: r.path, branch: r.branch, key: r.sshKey, tokenFile: r.tokenFile, limit: 50, cycle: cycle
         });
         cmdMap[s.cmd] = r.id;
         bump();
@@ -874,9 +1035,10 @@ PlasmoidItem {
         s.overflow = r.overflow;
     }
 
-    // which: a repo id, or "all"
+    // which: "all", "p:<repository id>", the id of a branch entry, or a list of branch entry ids
     function markAllRead(which) {
-        var ids = which === "all" ? repoList.map(function(r) { return r.id; })
+        var ids = Array.isArray(which) ? which
+            : which === "all" ? repoList.map(function(r) { return r.id; })
             : which.indexOf("p:") === 0 ? parentUnits(which.slice(2)).map(function(r) { return r.id; })
             : [which];
         var changed = false;
@@ -891,7 +1053,7 @@ PlasmoidItem {
         if (changed) {
             saveState();
         }
-        bump();
+        bumpNow();
     }
 
     onExpandedChanged: {
@@ -903,31 +1065,16 @@ PlasmoidItem {
             if (cfg.markReadOnOpen) {
                 markAllRead("all");
             } else {
-                bump();
+                bumpNow();
             }
         } else {
             for (var j = 0; j < repoList.length; ++j) {
                 st(repoList[j].id).highlight = 0;
             }
             closeDiff();
-            bump();
+            bumpNow();
         }
     }
-
-    onCurrentTabChanged: {
-        currentBranch = "";
-        closeDiff();
-        buildDisplay();
-    }
-
-    onCurrentBranchChanged: {
-        closeDiff();
-        buildDisplay();
-    }
-
-    // What "Mark all as read" applies to: everything, one repository or one branch.
-    readonly property string selection: currentBranch !== "" && showBranchBar ? currentBranch
-                                        : (showAllTab ? currentTab : "all")
 
     function openConfig() {
         var a = Plasmoid.internalAction("configure");
@@ -1093,8 +1240,11 @@ PlasmoidItem {
             return;
         }
         var tu = repoById(t.repoId);
-        currentTab = showAllTab ? "p:" + tu.parentId : "all";     // also closes an open diff
-        currentBranch = tu.multi ? tu.id : "";
+        if (effectiveIds().indexOf(tu.id) < 0) {
+            setSelection(showRepoBar ? [tu.parentId] : [], tu.multi ? [tu.id] : []);
+        } else {
+            closeDiff();
+        }
         expanded = true;
         if (!t.hash) {
             return;
@@ -1153,6 +1303,248 @@ PlasmoidItem {
 
         if (cfg.playSound) {
             notifier.connectSource(Helpers.soundCommand(cfg.soundName));
+        }
+    }
+
+    // The corner radius of buttons and windows in the system theme (Kirigami 6.2 and newer; 5 before).
+    readonly property real cornerRadius: Kirigami.Units.cornerRadius ?? 5
+
+    // A chip of the branch filter. A chosen chip has the highlight color and a check mark, so the choice
+    // does not depend on color alone. Space or Enter works like a click.
+    component FilterChip: Rectangle {
+        id: chip
+        property string label: ""
+        property int count: 0                 // unread commits, shown as a small badge
+        property bool selected: false
+        property string iconName: ""
+        property string dotColor: ""          // a dot in the color of the repository
+        property bool removable: false        // shows a cross: a click takes the chip away
+        signal clicked()
+
+        readonly property real textPt: root.fontPt(Kirigami.Theme.defaultFont) * cfg.listTextScale / 100
+        readonly property real glyph: Math.round(chipText.implicitHeight * 0.9)
+
+        implicitHeight: Math.round(chipText.implicitHeight + Kirigami.Units.smallSpacing * 2)
+        implicitWidth: Math.round(chipRow.implicitWidth + Kirigami.Units.largeSpacing * 2)
+        radius: root.cornerRadius
+        color: selected ? Qt.alpha(Kirigami.Theme.highlightColor, chipMouse.containsMouse ? 0.5 : 0.35)
+                        : (chipMouse.containsMouse ? Qt.alpha(Kirigami.Theme.textColor, 0.1) : "transparent")
+        border.width: 1
+        border.color: selected ? Kirigami.Theme.highlightColor : Qt.alpha(Kirigami.Theme.textColor, 0.3)
+
+        activeFocusOnTab: true
+        Keys.onSpacePressed: chip.clicked()
+        Keys.onReturnPressed: chip.clicked()
+        Keys.onEnterPressed: chip.clicked()
+        Accessible.role: Accessible.CheckBox
+        Accessible.name: (count > 0 ? label + " (" + count + ")" : label) + (removable ? " – " + i18n("remove") : "")
+        Accessible.checkable: !removable
+        Accessible.checked: selected
+        Accessible.onPressAction: chip.clicked()
+
+        Rectangle {
+            // keyboard focus
+            anchors.fill: parent
+            anchors.margins: -2
+            radius: root.cornerRadius + 2
+            color: "transparent"
+            border.width: 2
+            border.color: Kirigami.Theme.focusColor
+            visible: chip.activeFocus
+        }
+
+        RowLayout {
+            id: chipRow
+            anchors.centerIn: parent
+            spacing: Kirigami.Units.smallSpacing
+
+            Kirigami.Icon {
+                visible: chip.selected && !chip.removable
+                source: "checkmark"
+                implicitWidth: chip.glyph
+                implicitHeight: chip.glyph
+            }
+            Rectangle {
+                visible: chip.dotColor !== ""
+                implicitWidth: Math.round(chip.glyph * 0.6)
+                implicitHeight: implicitWidth
+                radius: width / 2
+                color: chip.dotColor || "transparent"
+            }
+            Kirigami.Icon {
+                visible: chip.iconName !== "" && (!chip.selected || chip.removable)
+                source: chip.iconName
+                implicitWidth: chip.glyph
+                implicitHeight: chip.glyph
+            }
+            PlasmaComponents.Label {
+                id: chipText
+                text: chip.label
+                font.pointSize: chip.textPt
+                font.weight: chip.selected ? Font.DemiBold : Font.Normal
+            }
+            Rectangle {
+                // unread commits
+                visible: chip.count > 0
+                implicitHeight: Math.round(chipText.implicitHeight * 0.85)
+                implicitWidth: Math.max(implicitHeight, badgeText.implicitWidth + Kirigami.Units.smallSpacing * 2)
+                radius: height / 2
+                color: Kirigami.Theme.highlightColor
+                Text {
+                    id: badgeText
+                    anchors.centerIn: parent
+                    text: chip.count > 99 ? "99+" : String(chip.count)
+                    color: Kirigami.Theme.highlightedTextColor
+                    font.pointSize: chip.textPt * 0.8
+                    font.bold: true
+                }
+            }
+            Kirigami.Icon {
+                visible: chip.removable
+                source: "window-close"
+                implicitWidth: Math.round(chip.glyph * 0.8)
+                implicitHeight: implicitWidth
+                opacity: chipMouse.containsMouse ? 1 : 0.6
+            }
+        }
+
+        MouseArea {
+            id: chipMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: chip.clicked()
+        }
+    }
+
+    // A drop-down list (for the repositories and the branches), built like the list of Plasma's own combo
+    // box: the theme's menu frame, and a height that comes straight from the content (up to maxHeight;
+    // longer content scrolls). Plasma's Popup was not used: it counts the content height only when the
+    // content reports a width, and with a scroll view inside it opened as a thin empty bar.
+    component ListPopup: T.Popup {
+        id: listPopup
+        property real maxHeight: Kirigami.Units.gridUnit * 20
+
+        implicitWidth: Kirigami.Units.gridUnit * 16
+        implicitHeight: contentItem.implicitHeight + topPadding + bottomPadding
+        height: Math.min(implicitHeight, maxHeight)
+        topMargin: 6
+        bottomMargin: 6
+        topPadding: background ? background.margins.top : undefined
+        leftPadding: background ? background.margins.left : undefined
+        rightPadding: background ? background.margins.right : undefined
+        bottomPadding: background ? background.margins.bottom : undefined
+        closePolicy: T.Popup.CloseOnEscape | T.Popup.CloseOnPressOutsideParent
+
+        background: Item {
+            readonly property alias margins: popupSurface.margins
+            implicitWidth: popupSurface.margins.left + popupSurface.margins.right
+            implicitHeight: popupSurface.margins.top + popupSurface.margins.bottom
+
+            KSvg.FrameSvgItem {
+                anchors {
+                    fill: parent
+                    topMargin: -margins.top
+                    leftMargin: -margins.left
+                    rightMargin: -margins.right
+                    bottomMargin: -margins.bottom
+                }
+                imagePath: "solid/widgets/tooltip"
+                prefix: "shadow"
+            }
+            KSvg.FrameSvgItem {
+                id: popupSurface
+                anchors.fill: parent
+                imagePath: "solid/widgets/tooltip"
+            }
+        }
+    }
+
+    // A row of the repository and branch lists: a check box, an optional color dot or icon, a name and
+    // the number of unread commits. The whole row takes the click (the check box only shows the state), so the list
+    // stays open and several rows can be ticked one after another.
+    component CheckRow: Rectangle {
+        id: checkRow
+        property string label: ""
+        property int count: 0
+        property bool checked: false
+        property bool partial: false          // some, not all (for the "All …" rows)
+        property string dotColor: ""
+        property string iconName: ""
+        signal activated()
+
+        implicitHeight: Math.round(Math.max(rowCheck.implicitHeight, rowText.implicitHeight) + Kirigami.Units.smallSpacing * 2)
+        implicitWidth: rowContent.implicitWidth + Kirigami.Units.largeSpacing * 2
+        radius: root.cornerRadius
+        color: rowMouse.containsMouse ? Qt.alpha(Kirigami.Theme.highlightColor, 0.25) : "transparent"
+
+        activeFocusOnTab: true
+        Keys.onSpacePressed: checkRow.activated()
+        Keys.onReturnPressed: checkRow.activated()
+        Keys.onEnterPressed: checkRow.activated()
+        Accessible.role: Accessible.CheckBox
+        Accessible.name: count > 0 ? label + " (" + count + ")" : label
+        Accessible.checkable: true
+        Accessible.checked: checked
+        Accessible.checkStateMixed: partial
+        Accessible.onPressAction: checkRow.activated()
+
+        RowLayout {
+            id: rowContent
+            anchors.fill: parent
+            anchors.leftMargin: Kirigami.Units.smallSpacing
+            anchors.rightMargin: Kirigami.Units.largeSpacing
+            spacing: Kirigami.Units.smallSpacing
+
+            PlasmaComponents.CheckBox {
+                id: rowCheck
+                tristate: true
+                checkState: checkRow.partial ? Qt.PartiallyChecked : (checkRow.checked ? Qt.Checked : Qt.Unchecked)
+                focusPolicy: Qt.NoFocus
+            }
+            Rectangle {
+                visible: checkRow.dotColor !== ""
+                implicitWidth: Math.round(rowText.implicitHeight * 0.55)
+                implicitHeight: implicitWidth
+                radius: width / 2
+                color: checkRow.dotColor || "transparent"
+            }
+            Kirigami.Icon {
+                visible: checkRow.iconName !== ""
+                source: checkRow.iconName
+                implicitWidth: Kirigami.Units.iconSizes.small
+                implicitHeight: Kirigami.Units.iconSizes.small
+            }
+            PlasmaComponents.Label {
+                id: rowText
+                Layout.fillWidth: true
+                text: checkRow.label
+                elide: Text.ElideRight
+                font.weight: checkRow.checked ? Font.DemiBold : Font.Normal
+            }
+            Rectangle {
+                visible: checkRow.count > 0
+                implicitHeight: Math.round(rowText.implicitHeight * 0.85)
+                implicitWidth: Math.max(implicitHeight, rowBadge.implicitWidth + Kirigami.Units.smallSpacing * 2)
+                radius: height / 2
+                color: Kirigami.Theme.highlightColor
+                Text {
+                    id: rowBadge
+                    anchors.centerIn: parent
+                    text: checkRow.count > 99 ? "99+" : String(checkRow.count)
+                    color: Kirigami.Theme.highlightedTextColor
+                    font.pointSize: root.fontPt(Kirigami.Theme.smallFont)
+                    font.bold: true
+                }
+            }
+        }
+
+        // Above the row content, so the check box never toggles itself.
+        MouseArea {
+            id: rowMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            onClicked: checkRow.activated()
         }
     }
 
@@ -1355,19 +1747,67 @@ PlasmoidItem {
 
                 // ---- list mode
                 Kirigami.Heading {
-                    visible: root.diffCommit === null && !root.showAllTab
+                    visible: root.diffCommit === null && !root.showRepoBar
                     Layout.fillWidth: true
                     level: 3
                     elide: Text.ElideRight
                     text: root.headerTitle
                 }
+                // Repository drop-down: its list has a check box for every repository, so several can be
+                // chosen; it stays open until a click outside it or Escape.
                 PlasmaComponents.ComboBox {
-                    visible: root.diffCommit === null && root.showAllTab
+                    id: repoBox
+                    visible: root.diffCommit === null && root.showRepoBar
                     Layout.fillWidth: true
-                    model: root.tabModel
-                    textRole: "text"
-                    currentIndex: root.tabIndex
-                    onActivated: index => root.currentTab = root.tabModel[index].id
+                    model: []
+                    displayText: root.repoSummary
+
+                    popup: ListPopup {
+                        y: repoBox.height
+                        width: repoBox.width
+                        maxHeight: Math.max(Kirigami.Units.gridUnit * 8, full.height - repoBox.height - Kirigami.Units.gridUnit)
+
+                        contentItem: Flickable {
+                            id: repoFlick
+                            implicitHeight: repoRows.implicitHeight
+                            contentHeight: repoRows.implicitHeight
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            T.ScrollBar.vertical: PlasmaComponents.ScrollBar {}
+
+                            ColumnLayout {
+                                id: repoRows
+                                width: repoFlick.width
+                                spacing: 0
+
+                                CheckRow {
+                                    Layout.fillWidth: true
+                                    label: i18n("All repositories")
+                                    count: root.totalUnread
+                                    checked: { root.rev; return root.shownRepoIds().length === root.repoChips.length; }
+                                    partial: { root.rev; var n = root.shownRepoIds().length; return n > 0 && n < root.repoChips.length; }
+                                    onActivated: root.toggleRepo("")
+                                }
+                                Kirigami.Separator {
+                                    Layout.fillWidth: true
+                                    Layout.topMargin: Kirigami.Units.smallSpacing
+                                    Layout.bottomMargin: Kirigami.Units.smallSpacing
+                                }
+                                Repeater {
+                                    model: root.repoChips
+                                    delegate: CheckRow {
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        label: modelData.text
+                                        count: modelData.count
+                                        dotColor: modelData.color
+                                        checked: { root.rev; return root.selRepos.length === 0 || root.selRepos.indexOf(modelData.id) >= 0; }
+                                        onActivated: root.toggleRepo(modelData.id)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 PlasmaComponents.BusyIndicator {
                     visible: root.diffCommit === null && root.anyChecking
@@ -1397,7 +1837,7 @@ PlasmoidItem {
                     icon.name: "checkmark"
                     display: PlasmaComponents.AbstractButton.IconOnly
                     enabled: root.totalUnread > 0
-                    onClicked: root.markAllRead(root.selection)
+                    onClicked: root.markAllRead(root.effectiveIds())
                     PlasmaComponents.ToolTip.text: i18n("Mark all as read")
                     PlasmaComponents.ToolTip.visible: hovered
                 }
@@ -1438,23 +1878,186 @@ PlasmoidItem {
             spacing: 0
             visible: root.diffCommit === null
 
-            // Branch switcher: only when the chosen repository is watched on several branches.
-            Flow {
-                visible: root.showBranchBar
-                Layout.fillWidth: true
-                Layout.margins: Kirigami.Units.smallSpacing
-                spacing: Kirigami.Units.smallSpacing
+            // A row for every shown repository that is watched on several branches: a "Branches" button that
+            // opens the list of its branches (with check boxes and a search field), and the chosen branches in
+            // one line next to it (a click on one takes it away). With no branch chosen, all are shown.
+            Repeater {
+                model: root.branchGroups
+                delegate: RowLayout {
+                    id: branchRow
+                    required property var modelData
+                    readonly property var groupData: modelData
+                    // The ids of the branches that are shown, and the branches to put in the line.
+                    readonly property var shownIds: { root.rev; root.selBranches; return root.shownUnits(groupData.id).map(function(u) { return u.id; }); }
+                    readonly property bool allShown: shownIds.length === groupData.branches.length
+                    readonly property var chosen: allShown ? [] : groupData.branches.filter(function(b) { return shownIds.indexOf(b.id) >= 0; })
+                    readonly property var shownInList: {
+                        var f = branchFilter.text.trim().toLowerCase();
+                        return f === "" ? groupData.branches
+                                        : groupData.branches.filter(function(b) { return b.text.toLowerCase().indexOf(f) >= 0; });
+                    }
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Kirigami.Units.smallSpacing
+                    Layout.rightMargin: Kirigami.Units.smallSpacing
+                    Layout.topMargin: Kirigami.Units.smallSpacing
+                    spacing: Kirigami.Units.smallSpacing
 
-                Repeater {
-                    model: root.branchModel
-                    delegate: PlasmaComponents.Button {
-                        required property var modelData
-                        text: modelData.text
-                        icon.name: modelData.id === "" ? "" : "vcs-branch"
-                        highlighted: root.currentBranch === modelData.id
-                        onClicked: root.currentBranch = modelData.id
+                    // The name of the repository, whenever the list shows more than one repository, so that
+                    // it is clear whose branches these are.
+                    readonly property bool named: root.viewRepoCount > 1 || root.branchGroups.length > 1
+                    PlasmaComponents.Label {
+                        visible: branchRow.named
+                        Layout.maximumWidth: Kirigami.Units.gridUnit * 10
+                        elide: Text.ElideRight
+                        font.bold: true
+                        font.pointSize: root.fontPt(Kirigami.Theme.defaultFont) * cfg.listTextScale / 100
+                        color: branchRow.groupData.color || Kirigami.Theme.textColor
+                        text: branchRow.groupData.name
+                    }
+
+                    PlasmaComponents.ToolButton {
+                        id: branchButton
+                        icon.name: "vcs-branch"
+                        text: i18n("Branches")
+                        down: branchPopup.visible
+                        onClicked: branchPopup.visible ? branchPopup.close() : branchPopup.open()
+                        PlasmaComponents.ToolTip.text: i18np("Choose the branches of %2 to show (%1 branch)", "Choose the branches of %2 to show (%1 branches)", branchRow.groupData.branches.length, branchRow.groupData.name)
+                        PlasmaComponents.ToolTip.visible: hovered && !branchPopup.visible
+                        PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+
+                        ListPopup {
+                            id: branchPopup
+                            y: branchButton.height
+                            width: Math.min(Kirigami.Units.gridUnit * 18, full.width - Kirigami.Units.gridUnit)
+                            maxHeight: Math.max(Kirigami.Units.gridUnit * 8, full.height * 0.7)
+                            onOpened: {
+                                if (branchFilter.visible) {
+                                    branchFilter.forceActiveFocus();
+                                }
+                            }
+                            onClosed: branchFilter.text = ""
+
+                            contentItem: ColumnLayout {
+                                spacing: Kirigami.Units.smallSpacing
+
+                                Kirigami.SearchField {
+                                    id: branchFilter
+                                    visible: branchRow.groupData.branches.length > 8
+                                    Layout.fillWidth: true
+                                }
+
+                                Flickable {
+                                    id: branchFlick
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    implicitHeight: branchRows.implicitHeight
+                                    contentHeight: branchRows.implicitHeight
+                                    clip: true
+                                    boundsBehavior: Flickable.StopAtBounds
+                                    T.ScrollBar.vertical: PlasmaComponents.ScrollBar {}
+
+                                    ColumnLayout {
+                                        id: branchRows
+                                        width: branchFlick.width
+                                        spacing: 0
+
+                                        CheckRow {
+                                            Layout.fillWidth: true
+                                            visible: branchFilter.text.trim() === ""
+                                            label: branchRow.named ? i18n("All branches of %1", branchRow.groupData.name) : i18n("All branches")
+                                            count: { root.rev; return root.sumUnread(branchRow.groupData.id); }
+                                            checked: branchRow.allShown
+                                            partial: !branchRow.allShown && branchRow.shownIds.length > 0
+                                            onActivated: root.toggleBranch(branchRow.groupData.id, "")
+                                        }
+                                        Kirigami.Separator {
+                                            visible: branchFilter.text.trim() === ""
+                                            Layout.fillWidth: true
+                                            Layout.topMargin: Kirigami.Units.smallSpacing
+                                            Layout.bottomMargin: Kirigami.Units.smallSpacing
+                                        }
+                                        Repeater {
+                                            model: branchRow.shownInList
+                                            delegate: CheckRow {
+                                                required property var modelData
+                                                Layout.fillWidth: true
+                                                label: modelData.text
+                                                iconName: "vcs-branch"
+                                                count: { root.rev; return root.st(modelData.id).unread; }
+                                                checked: branchRow.shownIds.indexOf(modelData.id) >= 0
+                                                onActivated: root.toggleBranch(branchRow.groupData.id, modelData.id)
+                                            }
+                                        }
+                                        PlasmaComponents.Label {
+                                            visible: branchRow.shownInList.length === 0
+                                            Layout.fillWidth: true
+                                            Layout.margins: Kirigami.Units.smallSpacing
+                                            opacity: 0.7
+                                            text: i18n("No branch matches.")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // The chosen branches, in one line; it scrolls sideways when they do not fit.
+                    Flickable {
+                        id: chosenView
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: chosenRow.implicitHeight
+                        contentWidth: chosenRow.implicitWidth
+                        contentHeight: chosenRow.implicitHeight
+                        flickableDirection: Flickable.HorizontalFlick
+                        boundsBehavior: Flickable.StopAtBounds
+                        clip: true
+
+                        // A plain mouse wheel scrolls the line sideways.
+                        WheelHandler {
+                            acceptedDevices: PointerDevice.Mouse
+                            onWheel: event => {
+                                var max = Math.max(0, chosenView.contentWidth - chosenView.width);
+                                chosenView.contentX = Math.max(0, Math.min(max, chosenView.contentX - event.angleDelta.y));
+                            }
+                        }
+
+                        Row {
+                            id: chosenRow
+                            spacing: Kirigami.Units.smallSpacing
+
+                            FilterChip {
+                                visible: branchRow.allShown
+                                label: i18n("All branches")
+                                count: { root.rev; return root.sumUnread(branchRow.groupData.id); }
+                                selected: true
+                                onClicked: branchPopup.open()
+                            }
+                            FilterChip {
+                                visible: branchRow.shownIds.length === 0
+                                label: i18n("No branch chosen")
+                                onClicked: branchPopup.open()
+                            }
+                            Repeater {
+                                model: branchRow.chosen
+                                delegate: FilterChip {
+                                    required property var modelData
+                                    label: modelData.text
+                                    iconName: "vcs-branch"
+                                    count: { root.rev; return root.st(modelData.id).unread; }
+                                    selected: true
+                                    removable: true
+                                    onClicked: root.toggleBranch(branchRow.groupData.id, modelData.id)
+                                }
+                            }
+                        }
                     }
                 }
+            }
+
+            Item {
+                // a little space between the chips and the list
+                visible: root.showBranchBar
+                implicitHeight: Kirigami.Units.smallSpacing
             }
 
             Repeater {
@@ -1490,9 +2093,48 @@ PlasmoidItem {
             // The ScrollView sits in a plain Item with a transparent overlay: Plasma's ScrollView handles
             // the mouse wheel itself, so Ctrl + wheel (text size) has to be caught above it.
             Item {
+                id: listPane
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 visible: root.displayCommits.length > 0
+
+                // One click timer and one context menu for the whole list, not one per row: the rows
+                // stay light, and a click is not lost when the list is rebuilt before the timer fires.
+                property var clickCommit: null
+                property var menuCommit: null
+                property double lastDouble: 0
+
+                // A single click shows the diff, a double click opens the web page. The diff view
+                // replaces the list, so it waits until the double-click time has passed.
+                Timer {
+                    id: clickTimer
+                    interval: ((Qt.styleHints && Qt.styleHints.mouseDoubleClickInterval) || 400) + 30
+                    onTriggered: {
+                        if (listPane.clickCommit) {
+                            root.openDiff(listPane.clickCommit);
+                        }
+                    }
+                }
+
+                PlasmaComponents.Menu {
+                    id: rowMenu
+                    PlasmaComponents.MenuItem {
+                        text: i18n("Show the changes")
+                        icon.name: "vcs-diff"
+                        onTriggered: root.openDiff(listPane.menuCommit)
+                    }
+                    PlasmaComponents.MenuItem {
+                        text: i18n("Copy SHA")
+                        icon.name: "edit-copy"
+                        onTriggered: root.copySha(listPane.menuCommit)
+                    }
+                    PlasmaComponents.MenuItem {
+                        text: i18n("Open in the browser")
+                        icon.name: "internet-services"
+                        enabled: listPane.menuCommit !== null && root.st(listPane.menuCommit.repoId).webUrl !== ""
+                        onTriggered: root.openCommitWeb(listPane.menuCommit)
+                    }
+                }
 
                 PlasmaComponents.ScrollView {
                     anchors.fill: parent
@@ -1507,39 +2149,9 @@ PlasmoidItem {
                             required property var modelData
                             required property int index
 
-                            property double lastDouble: 0
-
                             width: ListView.view.width
                             height: rowLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
                             color: rowMouse.containsMouse ? Qt.alpha(Kirigami.Theme.highlightColor, 0.15) : "transparent"
-
-                            // A single click shows the diff, a double click opens the web page. The diff
-                            // view replaces the list, so it waits until the double-click time has passed.
-                            Timer {
-                                id: clickTimer
-                                interval: ((Qt.styleHints && Qt.styleHints.mouseDoubleClickInterval) || 400) + 30
-                                onTriggered: root.openDiff(row.modelData)
-                            }
-
-                            PlasmaComponents.Menu {
-                                id: rowMenu
-                                PlasmaComponents.MenuItem {
-                                    text: i18n("Show the changes")
-                                    icon.name: "vcs-diff"
-                                    onTriggered: root.openDiff(row.modelData)
-                                }
-                                PlasmaComponents.MenuItem {
-                                    text: i18n("Copy SHA")
-                                    icon.name: "edit-copy"
-                                    onTriggered: root.copySha(row.modelData)
-                                }
-                                PlasmaComponents.MenuItem {
-                                    text: i18n("Open in the browser")
-                                    icon.name: "internet-services"
-                                    enabled: root.st(row.modelData.repoId).webUrl !== ""
-                                    onTriggered: root.openCommitWeb(row.modelData)
-                                }
-                            }
 
                             MouseArea {
                                 id: rowMouse
@@ -1549,14 +2161,16 @@ PlasmoidItem {
                                 onClicked: mouse => {
                                     if (mouse.button === Qt.RightButton) {
                                         clickTimer.stop();
+                                        listPane.menuCommit = row.modelData;
                                         rowMenu.popup();
-                                    } else if (Date.now() - row.lastDouble > 600) {
+                                    } else if (Date.now() - listPane.lastDouble > 600) {
+                                        listPane.clickCommit = row.modelData;
                                         clickTimer.restart();
                                     }
                                 }
                                 onDoubleClicked: {
                                     clickTimer.stop();
-                                    row.lastDouble = Date.now();
+                                    listPane.lastDouble = Date.now();
                                     root.openCommitWeb(row.modelData);
                                 }
                             }
@@ -1637,6 +2251,9 @@ PlasmoidItem {
                         }
                         if (root.problems.length > 0) {
                             return i18n("Nothing to show yet");
+                        }
+                        if (root.viewUnitCount === 0) {
+                            return i18n("Nothing chosen: tick a repository or a branch in the lists above");
                         }
                         return i18n("No commits found");
                     }
