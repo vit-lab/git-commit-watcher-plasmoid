@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Choosing what the popup shows: the repository drop-down lists the repositories with a check box each and stays
+  open while you tick them, so any number of repositories can be shown together; its text names the chosen
+  repositories. The check boxes always show what the list shows: with everything shown all of them are
+  ticked, "All repositories" is partly ticked when only some are, and a click on it ticks all of them (or
+  unticks all of them when all were ticked, to start a new choice). The branch list works the same way. For a repository with several branches, a line
+  below the header has the repository's name (whenever the list shows more than one repository) and a "Branches" button that opens the list of its branches with check boxes (and a search
+  field when there are many), and shows the chosen branches next to it in one line that scrolls sideways; a
+  click on a chosen branch takes it away again. This replaces the branch buttons, which took a lot of room
+  with many branches and showed no difference for the chosen one. Chosen branches have the highlight color,
+  their corners follow the system theme, and the lists and chips show the number of unread commits. With
+  several repositories chosen, every repository with several branches gets its own line. The choice is
+  remembered. A click on a notification changes it only when the commit is not already in the list. "Mark all
+  as read" in the header marks the commits that are shown.
 - "All repositories" list: every repository name has its own color (bold) instead of grey, so commits of
   different repositories are easy to tell apart; the branches after the name stay grey. The colors are handed
   out by the order of the repositories in the settings (8 colors, then they repeat) and adapt to light and dark
