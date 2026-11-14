@@ -98,6 +98,13 @@
       <default>false</default>
     </entry>
     <!-- Popup sizes in pixels, remembered separately for the commit list and the diff view (0 = default) -->
+    <!-- What the popup shows: JSON lists of repository ids and branch entry ids (empty = all) -->
+    <entry name="filterRepos" type="String">
+      <default></default>
+    </entry>
+    <entry name="filterBranches" type="String">
+      <default></default>
+    </entry>
     <!-- Text size in percent (Ctrl + mouse wheel in the popup), separately for the commit list and the diff view -->
     <entry name="listTextScale" type="Int">
       <default>100</default>

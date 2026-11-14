@@ -6,25 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3] - 2026-11-14
+
+### Added
+
+- Choosing what the popup shows: the repository drop-down lists the repositories with a check box each and
+  stays open while you tick them, so any number of repositories can be shown together; its text names the
+  chosen repositories. The check boxes always show what the list shows: with everything shown all of them are
+  ticked, "All repositories" is partly ticked when only some are, and a click on it ticks all of them (or
+  unticks all of them when all were ticked, to start a new choice).
+- Choosing branches: for a repository with several branches, a line below the header has the repository's
+  name (whenever the list shows more than one repository) and a "Branches" button that opens the list of its
+  branches with check boxes (and a search field when there are many). The list works like the repository
+  list. The chosen branches are shown next to the button in one line that scrolls sideways; a click on a
+  chosen branch takes it away again. With several repositories chosen, every repository with several
+  branches gets its own line. Chosen branches have the highlight color, their corners follow the system
+  theme, and the lists and chips show the number of unread commits.
+- The choice of repositories and branches is remembered.
+
 ### Changed
 
-- Choosing what the popup shows: the repository drop-down lists the repositories with a check box each and stays
-  open while you tick them, so any number of repositories can be shown together; its text names the chosen
-  repositories. The check boxes always show what the list shows: with everything shown all of them are
-  ticked, "All repositories" is partly ticked when only some are, and a click on it ticks all of them (or
-  unticks all of them when all were ticked, to start a new choice). The branch list works the same way. For a repository with several branches, a line
-  below the header has the repository's name (whenever the list shows more than one repository) and a "Branches" button that opens the list of its branches with check boxes (and a search
-  field when there are many), and shows the chosen branches next to it in one line that scrolls sideways; a
-  click on a chosen branch takes it away again. This replaces the branch buttons, which took a lot of room
-  with many branches and showed no difference for the chosen one. Chosen branches have the highlight color,
-  their corners follow the system theme, and the lists and chips show the number of unread commits. With
-  several repositories chosen, every repository with several branches gets its own line. The choice is
-  remembered. A click on a notification changes it only when the commit is not already in the list. "Mark all
-  as read" in the header marks the commits that are shown.
+- The branch buttons are replaced by the "Branches" button; they took a lot of room with many branches and
+  showed no difference for the chosen one.
+- A click on a notification changes the choice of repositories and branches only when the commit is not
+  already in the list. "Mark all as read" in the header marks the commits that are shown.
 - "All repositories" list: every repository name has its own color (bold) instead of grey, so commits of
   different repositories are easy to tell apart; the branches after the name stay grey. The colors are handed
-  out by the order of the repositories in the settings (8 colors, then they repeat) and adapt to light and dark
-  themes.
+  out by the order of the repositories in the settings (8 colors, then they repeat) and adapt to light and
+  dark themes.
 - Performance with several watched branches:
   - The branches of a repository are checked in one round that talks to the remote once: one `git fetch` for a
     local clone (it was one per branch, one after another), or one `git ls-remote` for a remote URL, with a
@@ -134,7 +143,8 @@ First public release.
   Local File…*), and `scripts/package.sh` to build it from the source.
 - Documentation: `README.md`, `SECURITY.md`, this changelog and issue templates.
 
-[Unreleased]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.2...HEAD
+[Unreleased]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.3...HEAD
+[1.3]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.2...v1.3
 [1.2]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.1...v1.2
 [1.1]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.0...v1.1
 [1.0]: https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/tag/v1.0

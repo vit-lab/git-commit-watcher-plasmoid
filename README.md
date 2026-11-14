@@ -8,9 +8,9 @@ warranty.
 
 ## Screenshots
 
-The commit list, with the branch switcher of a repository that is watched on several branches:
+The commit list of a repository that is watched on several branches:
 
-![The commit list with the branch switcher](docs/screenshots/01-commit-list.png)
+![The commit list of a repository with several branches](docs/screenshots/01-commit-list.png)
 
 The diff view of a commit, with colored section bars, per-file statistics and "Open File" buttons:
 
@@ -82,13 +82,13 @@ search for "Git Commit Watcher". The store page also offers the `.plasmoid` file
 
 ### From the release package
 
-Download `git-commit-watcher-1.2.plasmoid` from the
+Download `git-commit-watcher-1.3.plasmoid` from the
 [latest release](https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/latest). Use the file listed
 under Assets; the automatic "Source code" archives are not installable packages.
 
 ```sh
-curl -LO https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/download/v1.2/git-commit-watcher-1.2.plasmoid
-kpackagetool6 -t Plasma/Applet -i git-commit-watcher-1.2.plasmoid
+curl -LO https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/download/v1.3/git-commit-watcher-1.3.plasmoid
+kpackagetool6 -t Plasma/Applet -i git-commit-watcher-1.3.plasmoid
 ```
 
 The package can also be installed from the widget explorer: right-click the panel or desktop, open
@@ -102,7 +102,7 @@ The installed version and the checksum of the downloaded file can be checked wit
 
 ```sh
 grep Version ~/.local/share/plasma/plasmoids/local.gitcommitwatcher/metadata.json
-sha256sum git-commit-watcher-1.2.plasmoid
+sha256sum git-commit-watcher-1.3.plasmoid
 ```
 
 If the release notes list a SHA-256 checksum, it should match the output of the second command.
@@ -153,8 +153,8 @@ The second command deletes the widget's cache and is optional.
    such as `release/*` (also together with listed branches: `main, release/*`). The branches are found
    automatically and re-checked at every check, so new branches are picked up (at most 30 branches are taken
    for ALL or a pattern); a new branch is not announced itself, only its later commits. Each branch is checked
-   separately. In the popup the repository selector lists repositories, and below it a branch switcher
-   ("All branches", `main`, `dev`) appears for a repository with several branches. A commit that is on more
+   separately. In the popup, a "Branches" button lets you choose which branches of such a repository are
+   shown. A commit that is on more
    than one watched branch (after a merge, for example) is announced and counted once, and is listed once in
    "All repositories" with all its branches.
 4. If the remote requires authentication, select an SSH key or an HTTPS token file and use "Test connection".
@@ -174,8 +174,18 @@ Passphrases and tokens are never stored by the widget. Only the paths of the key
 
 ## Usage
 
-- The drop-down at the top selects a repository or "All repositories". In "All repositories" every
+- With several repositories, the drop-down at the top lists them with a check box each. Tick the repositories
+  you want to see; the list stays open, so several can be ticked one after another, and a click outside or
+  Escape closes it. The check boxes always match what the list shows; "All repositories" ticks all of them,
+  or unticks all of them when all were ticked, so you can start a new choice. When the list shows several repositories, every
   repository name has its own color, so the commits of different repositories are easy to tell apart.
+- For a repository that is watched on several branches, a line below the header has a "Branches" button
+  and the chosen branches next to it. The button opens the list of all branches with a check box each (and a
+  search field when there are many); tick the ones you want to see, the list stays open until a click
+  outside it or Escape. A click on a chosen branch in the line takes it away again; with no branch chosen,
+  the line shows "All branches". The line scrolls sideways (also with the mouse wheel) when the chosen
+  branches do not fit. The numbers count unread commits.
+- The choice of repositories and branches is remembered.
 - Clicking a commit shows its diff. The arrow at the top returns to the list.
 - Double-clicking a commit opens it in the browser. Links of the form `<repository>/commit/<hash>` are used,
   which works for GitHub, GitLab and Gitea.
