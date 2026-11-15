@@ -21,8 +21,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Repositories watched by URL download much less: one small copy per URL is shared by all its branches (it
   was one per branch), and it holds only the recent commits and folder listings. The files of a commit are
-  downloaded when its changes are opened. The first check of SuperTux with 30 branches went from up to 30
-  downloads of about 270 MB each to one of about 3 MB, in seconds.
+  downloaded when its changes are opened. For a big repository with many branches the first check is now
+  one small download (a few MB, in seconds) instead of one large download per branch.
 - In a check, the new commits of all watched branches of a repository are downloaded in one go.
 - The copies made by earlier versions (one per branch, in `~/.cache/gitcommitwatcher/`) are deleted, and a
   copy that has not been used for 30 days is deleted too.
