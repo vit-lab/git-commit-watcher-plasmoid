@@ -152,8 +152,8 @@ The second command deletes the widget's cache and is optional.
    (`main, dev`), tick "Watch all branches (ALL)" (or type `ALL`) to watch every branch, or use a pattern
    such as `release/*` (also together with listed branches: `main, release/*`). The branches are found
    automatically and re-checked at every check, so new branches are picked up (at most 30 branches are taken
-   for ALL or a pattern); a new branch is not announced itself, only its later commits. Each branch is checked
-   separately, but the branches of a repository share one download per check. In the popup, a "Branches" button lets you choose which branches of such a repository are
+   for ALL or a pattern); a new branch is not announced itself, only its later commits. All branches of a
+   repository are checked by one process, with one download per check. In the popup, a "Branches" button lets you choose which branches of such a repository are
    shown. A commit that is on more
    than one watched branch (after a merge, for example) is announced and counted once, and is listed once in
    "All repositories" with all its branches.

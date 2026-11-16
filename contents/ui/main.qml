@@ -26,7 +26,7 @@ PlasmoidItem {
     property var repoList: []
     property var states: ({})            // id -> runtime state (see st())
     property var saved: ({})             // id -> {sig, n: last notified tip, a: last acknowledged tip}
-    property var cmdMap: ({})            // running check command -> repo id
+    property var cmdMap: ({})            // running check command -> ids of the branch entries it checks
     property var discoverMap: ({})       // running branch-listing command -> repository id
     property var agentMap: ({})          // running agent command -> {id, action, key}
     property var unlockingKeys: ({})     // key path -> true while a passphrase dialog is open
@@ -297,10 +297,10 @@ PlasmoidItem {
         connectedSources: []
         onNewData: (sourceName, data) => {
             disconnectSource(sourceName);
-            var id = root.cmdMap[sourceName];
-            if (id !== undefined) {
+            var ids = root.cmdMap[sourceName];
+            if (ids !== undefined) {
                 delete root.cmdMap[sourceName];
-                root.handleResult(id, sourceName, data["stdout"], data["stderr"], data["exit code"]);
+                root.handleResults(ids, sourceName, data["stdout"], data["stderr"], data["exit code"]);
             }
         }
     }
@@ -633,9 +633,16 @@ PlasmoidItem {
         for (var id in states) {
             if (!keep[id]) {
                 var old = states[id];
-                if (old.cmd) {
-                    checker.disconnectSource(old.cmd);
-                    delete cmdMap[old.cmd];
+                // A check of several branches goes on for the others.
+                var running = old.cmd ? cmdMap[old.cmd] : undefined;
+                if (running !== undefined) {
+                    var rest = running.filter(function(x) { return x !== id; });
+                    if (rest.length > 0) {
+                        cmdMap[old.cmd] = rest;
+                    } else {
+                        checker.disconnectSource(old.cmd);
+                        delete cmdMap[old.cmd];
+                    }
                 }
                 delete states[id];
             }
@@ -1057,10 +1064,65 @@ PlasmoidItem {
         checkUnits();
     }
 
+    // One check process per repository: a repository watched on several branches gets them all checked in
+    // one process (see check.sh, GCW_MULTI), and its result updates the widget once. A process per branch
+    // made the whole panel stall with many branches: starting the processes and handling every result on
+    // its own (badge, tooltip, list) added up to a second or two.
     function checkUnits() {
+        var seen = {};
         for (var i = 0; i < repoList.length; ++i) {
-            checkRepo(repoList[i]);
+            var pid = repoList[i].parentId;
+            if (seen[pid]) {
+                continue;
+            }
+            seen[pid] = true;
+            var units = parentUnits(pid);
+            if (units.length > 1) {
+                checkParent(units);
+            } else {
+                checkRepo(units[0]);
+            }
         }
+    }
+
+    // Starts the check of a branch entry, or of several branch entries of one repository (units), with cmd.
+    function startCheck(units, cmd) {
+        for (var i = 0; i < units.length; ++i) {
+            var s = st(units[i].id);
+            if (s.cmd && s.cmd !== cmd) {
+                var running = cmdMap[s.cmd];
+                if (running !== undefined) {
+                    var rest = running.filter(function(x) { return x !== units[i].id; });
+                    if (rest.length > 0) {
+                        cmdMap[s.cmd] = rest;
+                    } else {
+                        checker.disconnectSource(s.cmd);
+                        delete cmdMap[s.cmd];
+                    }
+                }
+            }
+            s.checkState = "checking";
+            s.started = Date.now();
+            s.cmd = cmd;
+        }
+        cmdMap[cmd] = units.map(function(u) { return u.id; });
+        bump();
+        checker.connectSource(cmd);
+    }
+
+    function checkParent(units) {
+        var r = units[0];
+        for (var i = 0; i < units.length; ++i) {
+            var s = st(units[i].id);
+            if (s.checkState === "checking" && Date.now() - s.started < 150000) {
+                return;
+            }
+        }
+        startCheck(units, Helpers.checkCommand(scriptPath, {
+            repo: r.path, branch: "", key: r.sshKey, tokenFile: r.tokenFile, limit: 50, cycle: cycle, multi: true,
+            branches: units.map(function(u) { return u.branch; }),
+            progressId: Helpers.progressKey(r.parentId)
+        }));
     }
 
     // ---------------------------------------------- branches for ALL / patterns
@@ -1132,23 +1194,31 @@ PlasmoidItem {
         if (s.checkState === "checking" && Date.now() - s.started < 150000) {
             return;
         }
-        if (s.cmd) {
-            checker.disconnectSource(s.cmd);
-            delete cmdMap[s.cmd];
-        }
-        s.checkState = "checking";
-        s.started = Date.now();
-        s.cmd = Helpers.checkCommand(scriptPath, {
+        startCheck([r], Helpers.checkCommand(scriptPath, {
             repo: r.path, branch: r.branch, key: r.sshKey, tokenFile: r.tokenFile, limit: 50, cycle: cycle,
             branches: parentUnits(r.parentId).map(function(u) { return u.branch; }).filter(function(b) { return b !== ""; }),
             progressId: Helpers.progressKey(r.parentId)
-        });
-        cmdMap[s.cmd] = r.id;
-        bump();
-        checker.connectSource(s.cmd);
+        }));
     }
 
-    function handleResult(id, cmd, stdout, stderr, exitCode) {
+    // The result of one check process: one branch entry, or several (each in its own part of the output).
+    // Everything is applied first and the widget is updated once.
+    function handleResults(ids, cmd, stdout, stderr, exitCode) {
+        if (ids.length === 1 && String(cmd).indexOf("GCW_MULTI=1") < 0) {
+            applyResult(ids[0], cmd, stdout, stderr, exitCode);
+        } else {
+            var parts = Helpers.splitBranchOutput(stdout);
+            for (var i = 0; i < ids.length; ++i) {
+                var u = repoById(ids[i]);
+                var text = u ? parts[u.branch] : undefined;
+                // No part of its own: the whole check failed (its message is before the first branch).
+                applyResult(ids[i], cmd, text !== undefined ? text : (parts[""] || stdout), stderr, exitCode);
+            }
+        }
+        bump();
+    }
+
+    function applyResult(id, cmd, stdout, stderr, exitCode) {
         var r = repoById(id);
         var s = st(id);
         if (!r || s.cmd !== cmd) {
@@ -1171,7 +1241,6 @@ PlasmoidItem {
             } else {
                 s.checkState = "error";
             }
-            bump();
             return;
         }
         s.checkState = "ok";
@@ -1204,7 +1273,6 @@ PlasmoidItem {
             }
         }
         updateUnread(id);
-        bump();
     }
 
     function updateUnread(id) {

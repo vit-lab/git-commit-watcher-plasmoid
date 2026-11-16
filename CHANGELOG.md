@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- One check process per repository instead of one per branch: a repository watched on many branches (ALL)
+  is checked in one process, and its result updates the widget once. With about a hundred branches, starting
+  a process for each of them and updating the badge, tooltip and list after every single result kept the
+  whole Plasma panel busy for a second or two at every check.
 - The checks run with a low processor and disk priority, and the deletion of old caches with the lowest disk
   priority, so that a big download or the removal of many files is less likely to slow down the desktop.
 

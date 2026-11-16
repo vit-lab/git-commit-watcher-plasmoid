@@ -12,6 +12,10 @@
 #     written to $XDG_RUNTIME_DIR/gcw-progress-<id>.txt, and the widget shows it.
 #   GCW_REPO is either a path to a local clone or a remote URL (ssh/https).
 #   GCW_MODE=stop: stops all running checks (the Stop button of the widget) and prints "STATUS=ok".
+#   GCW_MULTI=1: checks every branch in GCW_BRANCHES, one after another in this one process, and prints the
+#     result of each after a line "U<US>branch". The widget starts one process per repository this way, not
+#     one per branch: with many branches, starting and handling a process for each of them made the panel
+#     stall for a second or two.
 #
 # Every check runs in a session of its own (setsid) and leaves a file $XDG_RUNTIME_DIR/gcw-check-<pid>.run
 # while it runs, so that "stop" can end it together with its git, ssh and timeout processes.
@@ -64,6 +68,18 @@ if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "${XDG_RUNTIME_DIR:-}" ] && [ -n "${GCW
     : > "$RUNFILE"
     trap 'rm -f "$RUNFILE"' EXIT
     trap 'exit 143' TERM INT HUP
+fi
+
+# Mode "several branches" (see GCW_MULTI above). The branches share one "ls-remote" and one fetch through
+# the round id; without one, this process makes its own.
+if [ "${GCW_MULTI:-}" = "1" ]; then
+    [ -n "${GCW_CYCLE:-}" ] || export GCW_CYCLE="m$$"
+    set -f
+    for b in ${GCW_BRANCHES:-}; do
+        printf 'U%s%s\n' "$US" "$b"
+        GCW_MULTI="" GCW_BRANCH="$b" bash "$0"
+    done
+    exit 0
 fi
 
 fail() {

@@ -589,10 +589,12 @@ function metaHtml(c, prefix, col) {
 // o.cycle (optional): the id of the check round; checks with the same id share one fetch (see check.sh).
 // o.branches (optional): all watched branches of the repository, fetched together in a round.
 // o.progressId (optional): the name of the progress file of the repository (see progressKey).
+// o.multi (optional): check all of o.branches in one process (see check.sh, GCW_MULTI, and splitBranchOutput).
 function checkCommand(script, o) {
     return (o.cycle ? "GCW_CYCLE=" + q(o.cycle) + " " : "")
         + (o.branches && o.branches.length ? "GCW_BRANCHES=" + q(o.branches.join(" ")) + " " : "")
         + (o.progressId ? "GCW_PROGRESS_ID=" + q(o.progressId) + " " : "")
+        + (o.multi ? "GCW_MULTI=1 " : "")
         + "GCW_REPO=" + q(o.repo)
         + " GCW_BRANCH=" + q(o.branch)
         + " GCW_KEY=" + q(o.key)
@@ -786,4 +788,25 @@ function etaSeconds(elapsedMs, done, left) {
         return -1;
     }
     return Math.round(elapsedMs / 1000 * left / done);
+}
+
+// Splits the output of a check of several branches (check.sh, GCW_MULTI) into { branch: output }.
+// Output before the first "U<US>branch" line (a failure of the whole check) is returned as "".
+function splitBranchOutput(stdout) {
+    var out = {};
+    var cur = "";
+    var lines = String(stdout || "").split("\n");
+    var buf = [];
+    for (var i = 0; i < lines.length; ++i) {
+        var l = lines[i];
+        if (l.charAt(0) === "U" && l.charAt(1) === US) {
+            out[cur] = (out[cur] || "") + buf.join("\n");
+            cur = l.slice(2);
+            buf = [];
+        } else {
+            buf.push(l);
+        }
+    }
+    out[cur] = (out[cur] || "") + buf.join("\n");
+    return out;
 }
