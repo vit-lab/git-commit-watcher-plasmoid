@@ -52,6 +52,13 @@ if [ -z "${GCW_SESSION:-}" ] && command -v setsid >/dev/null 2>&1; then
     export GCW_SESSION=1
     exec setsid -w bash "$0" "$@"
 fi
+# A check is background work: it must not compete with the desktop for the processor or the disk (a big
+# first download, or the removal of old caches, could make the panel stutter). Its git, ssh and rm
+# processes inherit this.
+if [ -n "${GCW_SESSION:-}" ]; then
+    renice -n 10 -p $$ >/dev/null 2>&1
+    command -v ionice >/dev/null 2>&1 && ionice -c 2 -n 7 -p $$ >/dev/null 2>&1
+fi
 if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "${XDG_RUNTIME_DIR:-}" ] && [ -n "${GCW_SESSION:-}" ]; then
     RUNFILE="$XDG_RUNTIME_DIR/gcw-check-$$.run"
     : > "$RUNFILE"
@@ -239,10 +246,12 @@ fetch_watched() {
 cleanup_caches() {
     local base="${XDG_CACHE_HOME:-$HOME/.cache}/gitcommitwatcher"
     [ -d "$base" ] || return 0
+    local idle=()
+    command -v ionice >/dev/null 2>&1 && idle=(ionice -c 3)     # deleting many files is heavy on the disk
     find "$base" -mindepth 1 -maxdepth 1 -type d -name '????????????' -exec test -f '{}/HEAD' ';' \
-        -exec rm -rf '{}' + 2>/dev/null
+        -exec "${idle[@]}" rm -rf '{}' + 2>/dev/null
     find "$base/repos" -mindepth 2 -maxdepth 2 -name gcw-used -mtime +30 -printf '%h\0' 2>/dev/null \
-        | xargs -0 -r rm -rf
+        | xargs -0 -r "${idle[@]}" rm -rf
 }
 
 # Mode "branches": only list the branches of the repository (for the ALL / pattern setting).

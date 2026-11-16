@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- Opening the changes of a commit filled the system log with "QTextCursor::setPosition: Position '…' out of
+  range" warnings (one per "Open File" button): the buttons asked for positions in the text of the previous
+  diff. They now ask only for positions inside the shown text, and no longer make Qt rebuild the whole diff
+  text for every button.
+
+### Changed
+
+- The checks run with a low processor and disk priority, and the deletion of old caches with the lowest disk
+  priority, so that a big download or the removal of many files is less likely to slow down the desktop.
+
 ## [1.4] - 2026-11-14
 
 ### Added
@@ -173,6 +187,7 @@ First public release.
   Local File…*), and `scripts/package.sh` to build it from the source.
 - Documentation: `README.md`, `SECURITY.md`, this changelog and issue templates.
 
+[Unreleased]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.4...HEAD
 [1.4]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.3...v1.4
 [1.3]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.2...v1.3
 [1.2]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.1...v1.2

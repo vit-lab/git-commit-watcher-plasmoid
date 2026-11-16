@@ -2551,13 +2551,21 @@ PlasmoidItem {
                                 id: openBtn
                                 required property var modelData
 
+                                // The offsets belong to the text of the diff that is shown. While the text is being
+                                // replaced the buttons still have the offsets of the previous diff, and a position
+                                // beyond the end of the text makes Qt print "QTextCursor::setPosition: Position
+                                // '...' out of range". So ask only for positions inside the text. The length is
+                                // read, not the text: for rich text Qt builds the whole HTML again on every read.
                                 readonly property rect lineRect: {
                                     diffText.width;
                                     diffText.contentHeight;
-                                    diffText.text;
-                                    return diffText.positionToRectangle(openBtn.modelData.off);
+                                    var len = diffText.length;
+                                    return openBtn.modelData.off <= len
+                                        ? diffText.positionToRectangle(openBtn.modelData.off)
+                                        : Qt.rect(0, 0, 0, 0);
                                 }
 
+                                visible: lineRect.height > 0
                                 x: diffText.width - width
                                 y: lineRect.y
                                 width: root.openButtonWidth
