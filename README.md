@@ -82,13 +82,13 @@ search for "Git Commit Watcher". The store page also offers the `.plasmoid` file
 
 ### From the release package
 
-Download `git-commit-watcher-1.4.plasmoid` from the
+Download `git-commit-watcher-1.5.plasmoid` from the
 [latest release](https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/latest). Use the file listed
 under Assets; the automatic "Source code" archives are not installable packages.
 
 ```sh
-curl -LO https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/download/v1.4/git-commit-watcher-1.4.plasmoid
-kpackagetool6 -t Plasma/Applet -i git-commit-watcher-1.4.plasmoid
+curl -LO https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/download/v1.5/git-commit-watcher-1.5.plasmoid
+kpackagetool6 -t Plasma/Applet -i git-commit-watcher-1.5.plasmoid
 ```
 
 The package can also be installed from the widget explorer: right-click the panel or desktop, open
@@ -102,7 +102,7 @@ The installed version and the checksum of the downloaded file can be checked wit
 
 ```sh
 grep Version ~/.local/share/plasma/plasmoids/local.gitcommitwatcher/metadata.json
-sha256sum git-commit-watcher-1.4.plasmoid
+sha256sum git-commit-watcher-1.5.plasmoid
 ```
 
 If the release notes list a SHA-256 checksum, it should match the output of the second command.
@@ -152,14 +152,18 @@ The second command deletes the widget's cache and is optional.
    (`main, dev`), tick "Watch all branches (ALL)" (or type `ALL`) to watch every branch, or use a pattern
    such as `release/*` (also together with listed branches: `main, release/*`). The branches are found
    automatically and re-checked at every check, so new branches are picked up (at most 30 branches are taken
-   for ALL or a pattern); a new branch is not announced itself, only its later commits. Each branch is checked
-   separately, but the branches of a repository share one download per check. In the popup, a "Branches" button lets you choose which branches of such a repository are
+   for ALL or a pattern; the number can be changed on the "Performance" page); a new branch is not announced itself, only its later commits. All branches of a
+   repository are checked by one process, with one download per check. In the popup, a "Branches" button lets you choose which branches of such a repository are
    shown. A commit that is on more
    than one watched branch (after a merge, for example) is announced and counted once, and is listed once in
    "All repositories" with all its branches.
 4. If the remote requires authentication, select an SSH key or an HTTPS token file and use "Test connection".
 5. Set the check interval (5 minutes by default) and the notification options. The sound can be chosen from
    the installed system sounds or from a file ("Sound" section of the Notifications page).
+6. The "Performance" page sets how much the widget downloads and shows: the number of commits the list shows
+   at first (100; "Show more" at the end of the list adds the next ones, 0 shows all at once), the number of
+   recent commits per branch (50) and the most branches taken for ALL or a pattern (30). "Reset to defaults"
+   restores these values.
 
 ### Authentication
 
@@ -186,6 +190,18 @@ Passphrases and tokens are never stored by the widget. Only the paths of the key
   the line shows "All branches". The line scrolls sideways (also with the mouse wheel) when the chosen
   branches do not fit. The numbers count unread commits.
 - The choice of repositories and branches is remembered.
+- The magnifier button in the header (or Ctrl+F) opens a search field. Type words from the commit message or
+  the author name, or the beginning of a hash (4 or more characters): the list keeps the commits that match
+  all of them. Escape closes the search; closing the popup does not, so the search is still there when the
+  popup opens again.
+- "Advanced" next to the search field opens a second row: choose an author to see only that author's
+  commits (the list has the authors of the downloaded commits), choose where the typed words are looked for
+  (everywhere, message, author or hash), and "Clear" empties everything. Closing the row takes the author
+  and the place back.
+- The search looks through the downloaded commits (the last 50 of every branch by default). "All history"
+  next to the search field, or Enter, searches every commit of the shown branches instead and lists the
+  newest 200 matching commits per repository. For a repository watched by URL, the first such search
+  downloads the list of all its commits, which can take a minute for a big repository.
 - Clicking a commit shows its diff. The arrow at the top returns to the list.
 - Double-clicking a commit opens it in the browser. Links of the form `<repository>/commit/<hash>` are used,
   which works for GitHub, GitLab and Gitea.
@@ -211,6 +227,7 @@ Passphrases and tokens are never stored by the widget. Only the paths of the key
 | --- | --- |
 | Settings: repository list, paths of key and token files, last seen commits, pin and mute state, popup sizes | Plasma configuration, `~/.config/plasma-org.kde.plasma.desktop-appletsrc` |
 | Small copies of repositories watched by URL: the recent commits and folder listings, one copy per URL shared by its branches; file contents are downloaded only for the commits whose changes you open | `~/.cache/gitcommitwatcher/repos/` (a copy unused for 30 days is deleted) |
+| Commit lists for the search in the whole history of repositories watched by URL (commits only, no folder listings or file contents), made by the first "All history" search | `~/.cache/gitcommitwatcher/history/` (a copy unused for 30 days is deleted) |
 | Read-only copies created by "Open File" | `~/.cache/gitcommitwatcher/files/` (deleted after a week) |
 | Socket of the private `ssh-agent` and the passphrase dialog launcher | `$XDG_RUNTIME_DIR` (`gcw-agent-<uid>.sock`, `gcw-askpass-<uid>.sh`) |
 | Small lock and state files of the checks (for example the branch list of the last check), and the download progress of a running check | `$XDG_RUNTIME_DIR` (`gcw-*.lock`, `gcw-*.state`, `gcw-progress-*.txt`, and `gcw-check-<pid>.run` while a check runs), removed at logout |

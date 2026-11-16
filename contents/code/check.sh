@@ -12,6 +12,10 @@
 #     written to $XDG_RUNTIME_DIR/gcw-progress-<id>.txt, and the widget shows it.
 #   GCW_REPO is either a path to a local clone or a remote URL (ssh/https).
 #   GCW_MODE=stop: stops all running checks (the Stop button of the widget) and prints "STATUS=ok".
+#   GCW_MULTI=1: checks every branch in GCW_BRANCHES, one after another in this one process, and prints the
+#     result of each after a line "U<US>branch". The widget starts one process per repository this way, not
+#     one per branch: with many branches, starting and handling a process for each of them made the panel
+#     stall for a second or two.
 #
 # Every check runs in a session of its own (setsid) and leaves a file $XDG_RUNTIME_DIR/gcw-check-<pid>.run
 # while it runs, so that "stop" can end it together with its git, ssh and timeout processes.
@@ -52,11 +56,30 @@ if [ -z "${GCW_SESSION:-}" ] && command -v setsid >/dev/null 2>&1; then
     export GCW_SESSION=1
     exec setsid -w bash "$0" "$@"
 fi
+# A check is background work: it must not compete with the desktop for the processor or the disk (a big
+# first download, or the removal of old caches, could make the panel stutter). Its git, ssh and rm
+# processes inherit this.
+if [ -n "${GCW_SESSION:-}" ]; then
+    renice -n 10 -p $$ >/dev/null 2>&1
+    command -v ionice >/dev/null 2>&1 && ionice -c 2 -n 7 -p $$ >/dev/null 2>&1
+fi
 if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "${XDG_RUNTIME_DIR:-}" ] && [ -n "${GCW_SESSION:-}" ]; then
     RUNFILE="$XDG_RUNTIME_DIR/gcw-check-$$.run"
     : > "$RUNFILE"
     trap 'rm -f "$RUNFILE"' EXIT
     trap 'exit 143' TERM INT HUP
+fi
+
+# Mode "several branches" (see GCW_MULTI above). The branches share one "ls-remote" and one fetch through
+# the round id; without one, this process makes its own.
+if [ "${GCW_MULTI:-}" = "1" ]; then
+    [ -n "${GCW_CYCLE:-}" ] || export GCW_CYCLE="m$$"
+    set -f
+    for b in ${GCW_BRANCHES:-}; do
+        printf 'U%s%s\n' "$US" "$b"
+        GCW_MULTI="" GCW_BRANCH="$b" bash "$0"
+    done
+    exit 0
 fi
 
 fail() {
@@ -213,25 +236,49 @@ prepare_cache() {
     return 0
 }
 
+# The number of commits per branch that the cache repository is known to hold (file gcw-depth; a cache
+# made before this file existed holds the 50 + 1 commits that were downloaded then).
+cache_depth() {
+    local d
+    d=$(head -n1 "$DIR/gcw-depth" 2>/dev/null)
+    case "$d" in
+        "" | *[!0-9]*) d=51 ;;
+    esac
+    printf '%s' "$d"
+}
+
 # Fetches the given refspecs into the cache repository: the last LIMIT+1 commits (the extra one is
 # the parent of the oldest listed commit, so that its changes can be shown), without file contents.
+# A fetch with a smaller number than before may shorten what the cache holds, so the number is lowered.
 fetch_cache() {
-    net_fetch "$DIR" --no-tags --depth="$((LIMIT + 1))" --filter=blob:none origin "$@"
+    net_fetch "$DIR" --no-tags --depth="$((LIMIT + 1))" --filter=blob:none origin "$@" || return 1
+    if [ "$((LIMIT + 1))" -lt "$(cache_depth)" ] || [ ! -f "$DIR/gcw-depth" ]; then
+        printf '%s\n' "$((LIMIT + 1))" > "$DIR/gcw-depth" 2>/dev/null
+    fi
+    return 0
 }
 
 # The first check of a round: fetches every watched branch whose tip on the remote ($HEADS) is not
-# in the cache yet, in one go.
+# in the cache yet, in one go. When more commits per branch are wanted than the cache holds (the setting
+# was raised), all watched branches are fetched again, which only downloads the older commits.
 fetch_watched() {
-    local specs=() b tip have
+    local specs=() b tip have deepen=""
+    [ "$(cache_depth)" -lt "$((LIMIT + 1))" ] && deepen=1
     for b in $BRANCHES; do
         git check-ref-format "refs/heads/$b" 2>/dev/null || continue
         tip=$(printf '%s\n' "$HEADS" | awk -v ref="refs/heads/$b" '$2 == ref { print $1; exit }')
         [ -n "$tip" ] || continue
         have=$(git -C "$DIR" rev-parse --verify --quiet "refs/gcw/tips/$b^{commit}")
-        [ "$tip" = "$have" ] || specs+=("+refs/heads/$b:refs/gcw/tips/$b")
+        if [ -n "$deepen" ] || [ "$tip" != "$have" ]; then
+            specs+=("+refs/heads/$b:refs/gcw/tips/$b")
+        fi
     done
     [ "${#specs[@]}" -gt 0 ] || return 0
-    fetch_cache "${specs[@]}"
+    fetch_cache "${specs[@]}" || return 1
+    if [ -n "$deepen" ]; then
+        printf '%s\n' "$((LIMIT + 1))" > "$DIR/gcw-depth" 2>/dev/null
+    fi
+    return 0
 }
 
 # Removes caches that are no longer used: the per-branch caches of version 1.3 and older (folders with
@@ -239,10 +286,15 @@ fetch_watched() {
 cleanup_caches() {
     local base="${XDG_CACHE_HOME:-$HOME/.cache}/gitcommitwatcher"
     [ -d "$base" ] || return 0
+    local idle=()
+    command -v ionice >/dev/null 2>&1 && idle=(ionice -c 3)     # deleting many files is heavy on the disk
     find "$base" -mindepth 1 -maxdepth 1 -type d -name '????????????' -exec test -f '{}/HEAD' ';' \
-        -exec rm -rf '{}' + 2>/dev/null
+        -exec "${idle[@]}" rm -rf '{}' + 2>/dev/null
     find "$base/repos" -mindepth 2 -maxdepth 2 -name gcw-used -mtime +30 -printf '%h\0' 2>/dev/null \
-        | xargs -0 -r rm -rf
+        | xargs -0 -r "${idle[@]}" rm -rf
+    # The history copies of the search in the whole history (search.sh), unused for 30 days.
+    find "$base/history" -mindepth 2 -maxdepth 2 -name gcw-used -mtime +30 -printf '%h\0' 2>/dev/null \
+        | xargs -0 -r "${idle[@]}" rm -rf
 }
 
 # Mode "branches": only list the branches of the repository (for the ALL / pattern setting).

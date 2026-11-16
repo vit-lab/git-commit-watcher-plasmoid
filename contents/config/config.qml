@@ -17,4 +17,9 @@ ConfigModel {
         icon: "preferences-desktop"
         source: "configBehavior.qml"
     }
+    ConfigCategory {
+        name: i18n("Performance")
+        icon: "speedometer"
+        source: "configPerformance.qml"
+    }
 }

@@ -159,6 +159,26 @@
       <default></default>
     </entry>
 
+    <!-- Performance -->
+    <entry name="listPageSize" type="Int">
+      <label>Commits the list shows at first; "Show more" at its end adds as many again (0 = all at once)</label>
+      <default>100</default>
+      <min>0</min>
+      <max>5000</max>
+    </entry>
+    <entry name="commitsPerBranch" type="Int">
+      <label>Recent commits downloaded and listed per branch</label>
+      <default>50</default>
+      <min>10</min>
+      <max>500</max>
+    </entry>
+    <entry name="maxAutoBranches" type="Int">
+      <label>Most branches taken for ALL or a pattern, per repository</label>
+      <default>30</default>
+      <min>1</min>
+      <max>200</max>
+    </entry>
+
     <!-- Internal state (not shown in the settings dialog) -->
     <entry name="repoState" type="String">
       <label>Per-repository state (JSON): last notified and last acknowledged commit</label>

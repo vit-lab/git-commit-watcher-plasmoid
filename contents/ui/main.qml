@@ -17,6 +17,7 @@ PlasmoidItem {
     readonly property string scriptPath: Helpers.urlToPath(Qt.resolvedUrl("../code/check.sh"))
     readonly property string agentScriptPath: Helpers.urlToPath(Qt.resolvedUrl("../code/agent.sh"))
     readonly property string diffScriptPath: Helpers.urlToPath(Qt.resolvedUrl("../code/diff.sh"))
+    readonly property string searchScriptPath: Helpers.urlToPath(Qt.resolvedUrl("../code/search.sh"))
     readonly property string openFileScriptPath: Helpers.urlToPath(Qt.resolvedUrl("../code/openfile.sh"))
 
     // ------------------------------------------------------------------ data
@@ -26,7 +27,7 @@ PlasmoidItem {
     property var repoList: []
     property var states: ({})            // id -> runtime state (see st())
     property var saved: ({})             // id -> {sig, n: last notified tip, a: last acknowledged tip}
-    property var cmdMap: ({})            // running check command -> repo id
+    property var cmdMap: ({})            // running check command -> ids of the branch entries it checks
     property var discoverMap: ({})       // running branch-listing command -> repository id
     property var agentMap: ({})          // running agent command -> {id, action, key}
     property var unlockingKeys: ({})     // key path -> true while a passphrase dialog is open
@@ -47,6 +48,188 @@ PlasmoidItem {
     property var displayCommits: []
     property var problems: []
     property string displaySig: ""       // what displayCommits shows; the list is replaced only when it changes
+    // The list shows the first cfg.listPageSize commits of displayCommits (0 = all of them); "Show more" at
+    // its end adds as many again. Rows are cheap one by one, but a list of thousands scrolls less smoothly.
+    property int extraShown: 0           // commits added with "Show more" since the popup was opened
+    readonly property int shownLimit: cfg.listPageSize > 0 ? cfg.listPageSize + extraShown : 0
+    readonly property int hiddenCount: shownLimit > 0 ? Math.max(0, matchedCommits.length - shownLimit) : 0
+    readonly property var listCommits: hiddenCount > 0 ? matchedCommits.slice(0, shownLimit) : matchedCommits
+    // The search (the button in the header, or Ctrl+F): the list keeps the commits of displayCommits whose
+    // message, author or hash match searchText (see Helpers.filterCommits), also the ones that are not
+    // shown yet. It stays when the popup closes (a search in the whole history can take a while), and ends
+    // with Escape or a second click on the button.
+    property bool searchOpen: false
+    property string searchText: ""
+    // The advanced search (the "Advanced" button next to the search field): only the commits of one author,
+    // and where the words are looked for. Both apply while its row is open.
+    property bool advancedOpen: false
+    property string searchAuthor: ""     // "" = all authors
+    property int searchField: 0          // 0 = everywhere, 1 = message, 2 = author, 3 = hash
+    readonly property var searchOpts: ({ author: searchAuthor, field: searchField })
+    readonly property bool searching: searchText.trim() !== "" || searchAuthor !== ""
+    // What is searched for, as one text: a search in the whole history belongs to it (see deepQuery).
+    readonly property string searchKey: searchText.trim() + "\n" + searchAuthor + "\n" + searchField
+    // The same for the messages of the list: the text, and the author if one is chosen.
+    readonly property string searchSummary: {
+        var parts = [];
+        if (searchText.trim() !== "") {
+            parts.push("\"" + searchText.trim() + "\"");
+        }
+        if (searchAuthor !== "") {
+            parts.push(i18n("author %1", searchAuthor));
+        }
+        return parts.join(", ");
+    }
+    // The authors to choose from: the ones of the downloaded commits of the shown branches.
+    readonly property var authorChoices: {
+        var names = advancedOpen ? Helpers.authorsOf(displayCommits) : [];
+        if (searchAuthor !== "" && names.indexOf(searchAuthor) < 0) {
+            names.unshift(searchAuthor);
+        }
+        return [i18n("All authors")].concat(names);
+    }
+    function setAdvancedOpen(open) {
+        advancedOpen = open;
+        if (!open) {
+            searchAuthor = "";
+            searchField = 0;
+        }
+    }
+    function clearSearch() {
+        searchText = "";
+        searchAuthor = "";
+        searchField = 0;
+        searchCleared();
+    }
+    signal searchCleared()
+    readonly property var matchedCommits: deepActive ? deepCommits
+        : searching ? Helpers.filterCommits(displayCommits, searchText, searchOpts) : displayCommits
+    onSearchKeyChanged: {
+        extraShown = 0;
+        if (deepState !== "" && searchKey !== deepQuery) {
+            cancelDeepSearch();
+        }
+    }
+    signal searchFocusWanted()
+
+    // "All history" (or Enter in the search field): the same search in every commit of the shown branches,
+    // not only in the downloaded ones (search.sh, one process per repository). Its result replaces the
+    // list until the search text changes.
+    readonly property int deepMax: 200   // the most commits taken per repository
+    property string deepState: ""        // "" | running | done
+    property string deepQuery: ""        // what is (or was) searched: the searchKey of that moment
+    property var deepCommits: []         // the result, entries like the ones of displayCommits
+    property bool deepMore: false        // a repository has more than deepMax matching commits
+    property var deepErrors: []          // "<repository>: <message>" of the repositories that failed
+    property var deepMap: ({})           // running search command -> repository id
+    property var deepFound: []           // the result so far, while repositories are still searched
+    readonly property bool deepRunning: deepState === "running"
+    readonly property bool deepActive: deepState === "done" && searching && deepQuery === searchKey
+
+    function cancelDeepSearch() {
+        for (var cmd in deepMap) {
+            searcher.disconnectSource(cmd);
+        }
+        deepMap = ({});
+        deepFound = [];
+        deepState = "";
+        deepQuery = "";
+        deepMore = false;
+        if (deepCommits.length > 0) {
+            deepCommits = [];
+        }
+        if (deepErrors.length > 0) {
+            deepErrors = [];
+        }
+    }
+
+    function startDeepSearch() {
+        var query = searchText.trim();
+        var key = searchKey;
+        if (!searching || (deepState !== "" && deepQuery === key)) {
+            return;
+        }
+        cancelDeepSearch();
+        var ids = effectiveIds();
+        var byParent = {};
+        var order = [];
+        for (var i = 0; i < ids.length; ++i) {
+            var u = repoById(ids[i]);
+            if (!u) {
+                continue;
+            }
+            if (!byParent[u.parentId]) {
+                byParent[u.parentId] = [];
+                order.push(u.parentId);
+            }
+            byParent[u.parentId].push(u);
+        }
+        if (order.length === 0) {
+            return;
+        }
+        deepQuery = key;
+        deepState = "running";
+        extraShown = 0;
+        for (var k = 0; k < order.length; ++k) {
+            var units = byParent[order[k]];
+            var cmd = Helpers.searchCommand(searchScriptPath, {
+                repo: units[0].path, key: units[0].sshKey, tokenFile: units[0].tokenFile,
+                branches: units.map(function(x) { return x.branch; }).filter(function(b) { return b !== ""; }),
+                query: query, author: searchAuthor, field: searchField, max: deepMax
+            });
+            deepMap[cmd] = order[k];
+            searcher.connectSource(cmd);
+        }
+    }
+
+    function handleDeepResult(pid, stdout, stderr, exitCode) {
+        var units = parentUnits(pid);
+        var res = Helpers.parseSearch(stdout, stderr, exitCode);
+        if (units.length > 0 && !res.ok) {
+            deepErrors = deepErrors.concat([units[0].baseName + ": " + res.msg]);
+        } else if (units.length > 0) {
+            deepMore = deepMore || res.more;
+            var found = [];
+            for (var i = 0; i < res.commits.length; ++i) {
+                var c = res.commits[i];
+                var u = units[0];
+                for (var j = 0; j < units.length; ++j) {
+                    if (units[j].branch === c.branch) {
+                        u = units[j];
+                        break;
+                    }
+                }
+                var label = c.branch || u.branch;
+                found.push({
+                    repoId: u.id, repoName: nameOf(u.id), hash: c.hash, short: c.short, author: c.author,
+                    subject: c.subject, when: c.when, ts: c.ts, unread: false, branches: [label], branchLabel: label,
+                    parentId: u.parentId, repoBase: u.baseName, multi: u.multi
+                });
+            }
+            deepFound = deepFound.concat(found);
+        }
+        if (Object.keys(deepMap).length === 0) {
+            var all = deepFound.slice();
+            all.sort(function(a, b) { return b.ts - a.ts; });
+            deepCommits = all;
+            deepFound = [];
+            deepState = "done";
+        }
+    }
+
+    function openSearch() {
+        if (diffCommit !== null) {
+            closeDiff();
+        }
+        searchOpen = true;
+        searchFocusWanted();
+    }
+    function closeSearch() {
+        searchOpen = false;
+        searchText = "";
+        setAdvancedOpen(false);
+        cancelDeepSearch();
+    }
     property string problemsSig: ""
     property string cycle: ""            // id of the current check round (see check.sh, GCW_CYCLE)
     property int cycleCount: 0
@@ -118,6 +301,16 @@ PlasmoidItem {
     // Re-read the repository list whenever the setting changes (e.g. after "Apply").
     readonly property string reposJson: cfg.repos
     onReposJsonChanged: reloadRepos()
+
+    // The Performance settings: another number of branches for ALL / a pattern changes what is watched,
+    // another number of commits per branch is downloaded by a new check.
+    property bool started: false         // set when the widget has loaded: the handlers below wait for it
+    readonly property int maxAutoBranches: cfg.maxAutoBranches
+    onMaxAutoBranchesChanged: if (started) reloadRepos()
+    readonly property int commitLimit: Math.max(1, cfg.commitsPerBranch)
+    onCommitLimitChanged: if (started) Qt.callLater(root.checkAll)
+    readonly property int listPageSize: cfg.listPageSize
+    onListPageSizeChanged: extraShown = 0
 
     // ------------------------------------------------ colors, clipboard
     function mix(c, a) {
@@ -297,10 +490,10 @@ PlasmoidItem {
         connectedSources: []
         onNewData: (sourceName, data) => {
             disconnectSource(sourceName);
-            var id = root.cmdMap[sourceName];
-            if (id !== undefined) {
+            var ids = root.cmdMap[sourceName];
+            if (ids !== undefined) {
                 delete root.cmdMap[sourceName];
-                root.handleResult(id, sourceName, data["stdout"], data["stderr"], data["exit code"]);
+                root.handleResults(ids, sourceName, data["stdout"], data["stderr"], data["exit code"]);
             }
         }
     }
@@ -366,6 +559,21 @@ PlasmoidItem {
             if (info) {
                 delete root.agentMap[sourceName];
                 root.handleAgentResult(info, data["stdout"], data["stderr"], data["exit code"]);
+            }
+        }
+    }
+
+    // Runs the searches in the whole history (see startDeepSearch).
+    Plasma5Support.DataSource {
+        id: searcher
+        engine: "executable"
+        connectedSources: []
+        onNewData: (sourceName, data) => {
+            disconnectSource(sourceName);
+            var pid = root.deepMap[sourceName];
+            if (pid !== undefined) {
+                delete root.deepMap[sourceName];
+                root.handleDeepResult(pid, data["stdout"], data["stderr"], data["exit code"]);
             }
         }
     }
@@ -436,6 +644,7 @@ PlasmoidItem {
 
     Component.onCompleted: {
         migrateIcons();
+        started = true;
         reloadRepos();
     }
 
@@ -619,7 +828,7 @@ PlasmoidItem {
     // (Re)builds the list of things to check from the settings and the branches found so far.
     function rebuildUnits() {
         parsedRepos = Helpers.parseRepos(cfg.repos, false);
-        var all = Helpers.expandRepos(parsedRepos, discovered);
+        var all = Helpers.expandRepos(parsedRepos, discovered, cfg.maxAutoBranches);
         saved = loadSaved();
 
         var list = [];
@@ -633,9 +842,16 @@ PlasmoidItem {
         for (var id in states) {
             if (!keep[id]) {
                 var old = states[id];
-                if (old.cmd) {
-                    checker.disconnectSource(old.cmd);
-                    delete cmdMap[old.cmd];
+                // A check of several branches goes on for the others.
+                var running = old.cmd ? cmdMap[old.cmd] : undefined;
+                if (running !== undefined) {
+                    var rest = running.filter(function(x) { return x !== id; });
+                    if (rest.length > 0) {
+                        cmdMap[old.cmd] = rest;
+                    } else {
+                        checker.disconnectSource(old.cmd);
+                        delete cmdMap[old.cmd];
+                    }
                 }
                 delete states[id];
             }
@@ -772,6 +988,8 @@ PlasmoidItem {
         if (cfg.filterBranches !== b) {
             cfg.filterBranches = b;
         }
+        extraShown = 0;
+        cancelDeepSearch();
         closeDiff();
         bumpNow();
     }
@@ -1057,10 +1275,65 @@ PlasmoidItem {
         checkUnits();
     }
 
+    // One check process per repository: a repository watched on several branches gets them all checked in
+    // one process (see check.sh, GCW_MULTI), and its result updates the widget once. A process per branch
+    // made the whole panel stall with many branches: starting the processes and handling every result on
+    // its own (badge, tooltip, list) added up to a second or two.
     function checkUnits() {
+        var seen = {};
         for (var i = 0; i < repoList.length; ++i) {
-            checkRepo(repoList[i]);
+            var pid = repoList[i].parentId;
+            if (seen[pid]) {
+                continue;
+            }
+            seen[pid] = true;
+            var units = parentUnits(pid);
+            if (units.length > 1) {
+                checkParent(units);
+            } else {
+                checkRepo(units[0]);
+            }
         }
+    }
+
+    // Starts the check of a branch entry, or of several branch entries of one repository (units), with cmd.
+    function startCheck(units, cmd) {
+        for (var i = 0; i < units.length; ++i) {
+            var s = st(units[i].id);
+            if (s.cmd && s.cmd !== cmd) {
+                var running = cmdMap[s.cmd];
+                if (running !== undefined) {
+                    var rest = running.filter(function(x) { return x !== units[i].id; });
+                    if (rest.length > 0) {
+                        cmdMap[s.cmd] = rest;
+                    } else {
+                        checker.disconnectSource(s.cmd);
+                        delete cmdMap[s.cmd];
+                    }
+                }
+            }
+            s.checkState = "checking";
+            s.started = Date.now();
+            s.cmd = cmd;
+        }
+        cmdMap[cmd] = units.map(function(u) { return u.id; });
+        bump();
+        checker.connectSource(cmd);
+    }
+
+    function checkParent(units) {
+        var r = units[0];
+        for (var i = 0; i < units.length; ++i) {
+            var s = st(units[i].id);
+            if (s.checkState === "checking" && Date.now() - s.started < 150000) {
+                return;
+            }
+        }
+        startCheck(units, Helpers.checkCommand(scriptPath, {
+            repo: r.path, branch: "", key: r.sshKey, tokenFile: r.tokenFile, limit: commitLimit, cycle: cycle, multi: true,
+            branches: units.map(function(u) { return u.branch; }),
+            progressId: Helpers.progressKey(r.parentId)
+        }));
     }
 
     // ---------------------------------------------- branches for ALL / patterns
@@ -1132,23 +1405,31 @@ PlasmoidItem {
         if (s.checkState === "checking" && Date.now() - s.started < 150000) {
             return;
         }
-        if (s.cmd) {
-            checker.disconnectSource(s.cmd);
-            delete cmdMap[s.cmd];
-        }
-        s.checkState = "checking";
-        s.started = Date.now();
-        s.cmd = Helpers.checkCommand(scriptPath, {
-            repo: r.path, branch: r.branch, key: r.sshKey, tokenFile: r.tokenFile, limit: 50, cycle: cycle,
+        startCheck([r], Helpers.checkCommand(scriptPath, {
+            repo: r.path, branch: r.branch, key: r.sshKey, tokenFile: r.tokenFile, limit: commitLimit, cycle: cycle,
             branches: parentUnits(r.parentId).map(function(u) { return u.branch; }).filter(function(b) { return b !== ""; }),
             progressId: Helpers.progressKey(r.parentId)
-        });
-        cmdMap[s.cmd] = r.id;
-        bump();
-        checker.connectSource(s.cmd);
+        }));
     }
 
-    function handleResult(id, cmd, stdout, stderr, exitCode) {
+    // The result of one check process: one branch entry, or several (each in its own part of the output).
+    // Everything is applied first and the widget is updated once.
+    function handleResults(ids, cmd, stdout, stderr, exitCode) {
+        if (ids.length === 1 && String(cmd).indexOf("GCW_MULTI=1") < 0) {
+            applyResult(ids[0], cmd, stdout, stderr, exitCode);
+        } else {
+            var parts = Helpers.splitBranchOutput(stdout);
+            for (var i = 0; i < ids.length; ++i) {
+                var u = repoById(ids[i]);
+                var text = u ? parts[u.branch] : undefined;
+                // No part of its own: the whole check failed (its message is before the first branch).
+                applyResult(ids[i], cmd, text !== undefined ? text : (parts[""] || stdout), stderr, exitCode);
+            }
+        }
+        bump();
+    }
+
+    function applyResult(id, cmd, stdout, stderr, exitCode) {
         var r = repoById(id);
         var s = st(id);
         if (!r || s.cmd !== cmd) {
@@ -1171,7 +1452,6 @@ PlasmoidItem {
             } else {
                 s.checkState = "error";
             }
-            bump();
             return;
         }
         s.checkState = "ok";
@@ -1204,7 +1484,6 @@ PlasmoidItem {
             }
         }
         updateUnread(id);
-        bump();
     }
 
     function updateUnread(id) {
@@ -1247,10 +1526,16 @@ PlasmoidItem {
             } else {
                 bumpNow();
             }
+            if (searchOpen) {
+                Qt.callLater(function() { root.searchFocusWanted(); });
+            }
         } else {
             for (var j = 0; j < repoList.length; ++j) {
                 st(repoList[j].id).highlight = 0;
             }
+            // The search stays, also a running one in the whole history: its result is there when the
+            // popup opens again.
+            extraShown = 0;
             closeDiff();
             bumpNow();
         }
@@ -2004,6 +2289,20 @@ PlasmoidItem {
                     PlasmaComponents.ToolTip.visible: hovered
                 }
                 PlasmaComponents.ToolButton {
+                    // Opens the search field above the list; a second click closes it and ends the search.
+                    visible: root.diffCommit === null
+                    icon.name: "search"
+                    display: PlasmaComponents.AbstractButton.IconOnly
+                    enabled: root.displayCommits.length > 0 || root.searchOpen
+                    // Not checkable: the search is also closed by Escape and by closing the popup, and a
+                    // click on a checkable button would cut "checked" off from searchOpen.
+                    checked: root.searchOpen
+                    onClicked: root.searchOpen ? root.closeSearch() : root.openSearch()
+                    PlasmaComponents.ToolTip.text: root.searchOpen ? i18n("Close the search")
+                                                                   : i18n("Search by message, author or hash (Ctrl+F)")
+                    PlasmaComponents.ToolTip.visible: hovered
+                }
+                PlasmaComponents.ToolButton {
                     // "Check now", and while a check runs "Stop checking" (for a check that hangs).
                     visible: root.diffCommit === null
                     icon.name: root.anyChecking ? "process-stop" : "view-refresh"
@@ -2058,6 +2357,175 @@ PlasmoidItem {
             anchors.fill: parent
             spacing: 0
             visible: root.diffCommit === null
+
+            Shortcut {
+                sequences: [StandardKey.Find]
+                enabled: root.expanded && root.displayCommits.length > 0
+                onActivated: root.openSearch()
+            }
+
+            // The search field (see root.searchText). Escape closes it; the popup stays open.
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
+                visible: root.searchOpen
+
+                Kirigami.SearchField {
+                    id: commitSearch
+                    Layout.fillWidth: true
+                    placeholderText: i18n("Search by message, author or hash…")
+                    onTextChanged: root.searchText = text
+                    // Enter: the same search in the whole history.
+                    Keys.onReturnPressed: root.startDeepSearch()
+                    Keys.onEnterPressed: root.startDeepSearch()
+                    Keys.onEscapePressed: event => {
+                        root.closeSearch();
+                        event.accepted = true;
+                    }
+                    Connections {
+                        target: root
+                        function onSearchFocusWanted() {
+                            commitSearch.forceActiveFocus();
+                            commitSearch.selectAll();
+                        }
+                        function onSearchOpenChanged() {
+                            if (!root.searchOpen && commitSearch.text !== "") {
+                                commitSearch.text = "";
+                            }
+                        }
+                        function onSearchCleared() {
+                            commitSearch.text = "";
+                            commitSearch.forceActiveFocus();
+                        }
+                    }
+                }
+                PlasmaComponents.Button {
+                    // The search above looks through the downloaded commits; this one through all of them.
+                    icon.name: "view-history"
+                    text: i18n("All history")
+                    enabled: root.searching && !root.deepRunning && !root.deepActive
+                    onClicked: root.startDeepSearch()
+                    PlasmaComponents.ToolTip.text: i18n("Search every commit of the shown branches, not only the downloaded ones (Enter).\nFor a repository watched by URL, the first search downloads the list of all its commits, which can take a minute.")
+                    PlasmaComponents.ToolTip.visible: hovered
+                    PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+                }
+                PlasmaComponents.BusyIndicator {
+                    visible: root.deepRunning
+                    running: visible
+                    Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                    Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                }
+                PlasmaComponents.Label {
+                    visible: root.searching
+                    opacity: 0.7
+                    text: root.deepRunning ? i18n("Searching all history…")
+                        : root.deepActive ? (root.deepMore
+                            ? i18n("%1+ in all history", root.matchedCommits.length)
+                            : i18np("%1 in all history", "%1 in all history", root.matchedCommits.length))
+                        : i18np("%1 commit", "%1 commits", root.matchedCommits.length)
+                }
+                PlasmaComponents.ToolButton {
+                    // Opens the row below: the author and where to look. Closing it takes both away.
+                    icon.name: "view-filter"
+                    text: i18n("Advanced")
+                    display: PlasmaComponents.AbstractButton.TextBesideIcon
+                    checked: root.advancedOpen
+                    onClicked: root.setAdvancedOpen(!root.advancedOpen)
+                    PlasmaComponents.ToolTip.text: root.advancedOpen ? i18n("Close the advanced search")
+                                                                     : i18n("Advanced search: choose an author and where to look")
+                    PlasmaComponents.ToolTip.visible: hovered
+                    PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+                }
+            }
+
+            // The advanced search: the author, where the words are looked for, and "Clear". "All history"
+            // above (or Enter) searches with them too.
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
+                visible: root.searchOpen && root.advancedOpen
+
+                PlasmaComponents.ComboBox {
+                    id: authorBox
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: Kirigami.Units.gridUnit * 16
+                    model: root.authorChoices
+                    function sync() {
+                        var i = root.searchAuthor === "" ? 0 : root.authorChoices.indexOf(root.searchAuthor);
+                        currentIndex = Math.max(0, i);
+                    }
+                    onModelChanged: sync()
+                    Component.onCompleted: sync()
+                    onActivated: index => root.searchAuthor = index > 0 ? root.authorChoices[index] : ""
+                    Connections {
+                        target: root
+                        function onSearchAuthorChanged() {
+                            authorBox.sync();
+                        }
+                    }
+                    PlasmaComponents.ToolTip.text: i18n("Show only the commits of one author. The list has the authors of the downloaded commits; for anyone else, type the name in the search field and choose \"In the author\".")
+                    PlasmaComponents.ToolTip.visible: hovered && !popup.visible
+                    PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+                }
+                PlasmaComponents.ComboBox {
+                    id: fieldBox
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 10
+                    model: [i18n("Everywhere"), i18n("In the message"), i18n("In the author"), i18n("In the hash")]
+                    function sync() {
+                        currentIndex = root.searchField;
+                    }
+                    Component.onCompleted: sync()
+                    onActivated: index => root.searchField = index
+                    Connections {
+                        target: root
+                        function onSearchFieldChanged() {
+                            fieldBox.sync();
+                        }
+                    }
+                    PlasmaComponents.ToolTip.text: i18n("Where the typed words are looked for")
+                    PlasmaComponents.ToolTip.visible: hovered && !popup.visible
+                    PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+                }
+                PlasmaComponents.Button {
+                    icon.name: "edit-clear-all"
+                    text: i18n("Clear")
+                    enabled: root.searchText !== "" || root.searchAuthor !== "" || root.searchField !== 0
+                    onClicked: root.clearSearch()
+                    PlasmaComponents.ToolTip.text: i18n("Empty the search field and take the author and the place back")
+                    PlasmaComponents.ToolTip.visible: hovered
+                    PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+                }
+                Item {
+                    Layout.fillWidth: true
+                }
+            }
+
+            // What the search in the whole history could not do, or did not show.
+            PlasmaComponents.Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+                visible: root.searchOpen && root.deepActive && (root.deepErrors.length > 0 || root.deepMore)
+                wrapMode: Text.Wrap
+                maximumLineCount: 4
+                elide: Text.ElideRight
+                font.pointSize: root.fontPt(Kirigami.Theme.smallFont)
+                color: root.deepErrors.length > 0 ? Kirigami.Theme.neutralTextColor : Kirigami.Theme.textColor
+                opacity: root.deepErrors.length > 0 ? 1 : 0.7
+                text: {
+                    var lines = root.deepErrors.slice();
+                    if (root.deepMore) {
+                        lines.push(i18n("There are more matching commits: the newest %1 of a repository are listed. Add a word to narrow the search.", root.deepMax));
+                    }
+                    return lines.join("\n");
+                }
+            }
 
             // A row for every shown repository that is watched on several branches: a "Branches" button that
             // opens the list of its branches (with check boxes and a search field), and the chosen branches in
@@ -2285,7 +2753,7 @@ PlasmoidItem {
                 id: listPane
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                visible: root.displayCommits.length > 0
+                visible: root.matchedCommits.length > 0
 
                 // One click timer and one context menu for the whole list, not one per row: the rows
                 // stay light, and a click is not lost when the list is rebuilt before the timer fires.
@@ -2330,8 +2798,61 @@ PlasmoidItem {
 
                     ListView {
                         id: commitList
-                        model: root.displayCommits
+                        model: root.listCommits
                         clip: true
+                        // Rows that scroll out of view are used again for the ones that scroll in,
+                        // instead of being destroyed and created anew.
+                        reuseItems: true
+
+                        // Shows `count` more commits (0 = all the rest). The list is rebuilt for that,
+                        // so the row at the top is put back where it was.
+                        function showMore(count) {
+                            var top = indexAt(width / 2, contentY + 1);
+                            var item = top >= 0 ? itemAtIndex(top) : null;
+                            var offset = item ? contentY - item.y : 0;
+                            root.extraShown += count > 0 ? count : root.hiddenCount;
+                            if (top >= 0) {
+                                positionViewAtIndex(top, ListView.Beginning);
+                                contentY += offset;
+                            }
+                        }
+
+                        footer: ColumnLayout {
+                            width: ListView.view ? ListView.view.width : 0
+                            // No height at all when every commit is shown.
+                            height: root.hiddenCount > 0 ? implicitHeight : 0
+                            visible: root.hiddenCount > 0
+                            spacing: Kirigami.Units.smallSpacing
+
+                            Kirigami.Separator {
+                                Layout.fillWidth: true
+                            }
+                            PlasmaComponents.Label {
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignHCenter
+                                elide: Text.ElideRight
+                                opacity: 0.7
+                                font.pointSize: root.fontPt(Kirigami.Theme.smallFont) * cfg.listTextScale / 100
+                                text: i18n("Showing %1 of %2 commits", root.listCommits.length, root.matchedCommits.length)
+                            }
+                            RowLayout {
+                                Layout.alignment: Qt.AlignHCenter
+                                Layout.bottomMargin: Kirigami.Units.smallSpacing
+                                spacing: Kirigami.Units.smallSpacing
+
+                                PlasmaComponents.Button {
+                                    readonly property int step: Math.min(root.hiddenCount, Math.max(1, cfg.listPageSize))
+                                    icon.name: "arrow-down"
+                                    text: i18np("Show %1 more", "Show %1 more", step)
+                                    onClicked: commitList.showMore(step)
+                                }
+                                PlasmaComponents.Button {
+                                    visible: root.hiddenCount > Math.max(1, cfg.listPageSize)
+                                    text: i18n("Show all")
+                                    onClicked: commitList.showMore(0)
+                                }
+                            }
+                        }
 
                         delegate: Rectangle {
                             id: row
@@ -2422,7 +2943,7 @@ PlasmoidItem {
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                visible: root.displayCommits.length === 0
+                visible: root.matchedCommits.length === 0
 
                 ColumnLayout {
                     anchors.centerIn: parent
@@ -2431,11 +2952,23 @@ PlasmoidItem {
 
                     Kirigami.PlaceholderMessage {
                         Layout.fillWidth: true
-                        icon.name: (!root.unconfigured && root.problems.length > 0) ? "dialog-warning" : "folder-git"
-                        explanation: root.anyChecking && root.activeProgress
+                        icon.name: root.displayCommits.length > 0 ? "search"
+                            : (!root.unconfigured && root.problems.length > 0) ? "dialog-warning" : "folder-git"
+                        explanation: root.displayCommits.length === 0 && root.anyChecking && root.activeProgress
                             ? i18n("The first check downloads the recent history of the repository; later checks only download what is new.")
-                            : ""
+                            : (root.displayCommits.length > 0 && !root.deepActive && !root.deepRunning)
+                                ? i18n("Only the downloaded commits were searched. Press Enter or \"All history\" to search all commits of the shown branches.")
+                                : ""
                         text: {
+                            if (root.displayCommits.length > 0) {
+                                // Only the search can empty a list that has commits.
+                                if (root.deepRunning) {
+                                    return i18n("Searching all history…");
+                                }
+                                return root.deepActive
+                                    ? i18n("No commit in the whole history matches %1", root.searchSummary)
+                                    : i18n("No downloaded commit matches %1", root.searchSummary);
+                            }
                             if (root.unconfigured) {
                                 return i18n("No repository configured");
                             }
@@ -2453,19 +2986,20 @@ PlasmoidItem {
                             }
                             return i18n("No commits found");
                         }
-                        helpfulAction: Kirigami.Action {
-                            visible: root.unconfigured
-                            text: i18n("Configure…")
-                            icon.name: "configure"
-                            onTriggered: root.openConfig()
-                        }
+                        helpfulAction: root.unconfigured ? configureAction : null
+                    }
+                    Kirigami.Action {
+                        id: configureAction
+                        text: i18n("Configure…")
+                        icon.name: "configure"
+                        onTriggered: root.openConfig()
                     }
 
                     // The download of the first check (or of a check that brings many new commits).
                     PlasmaComponents.ProgressBar {
                         Layout.alignment: Qt.AlignHCenter
                         Layout.preferredWidth: Math.min(parent.width, Kirigami.Units.gridUnit * 16)
-                        visible: root.anyChecking && root.activeProgress !== null
+                        visible: root.displayCommits.length === 0 && root.anyChecking && root.activeProgress !== null
                         from: 0
                         to: 100
                         indeterminate: root.progressValue(root.activeProgress) < 0
@@ -2473,7 +3007,7 @@ PlasmoidItem {
                     }
                     PlasmaComponents.Label {
                         Layout.fillWidth: true
-                        visible: root.anyChecking && root.activeProgress !== null
+                        visible: root.displayCommits.length === 0 && root.anyChecking && root.activeProgress !== null
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.Wrap
                         opacity: 0.7
@@ -2551,13 +3085,21 @@ PlasmoidItem {
                                 id: openBtn
                                 required property var modelData
 
+                                // The offsets belong to the text of the diff that is shown. While the text is being
+                                // replaced the buttons still have the offsets of the previous diff, and a position
+                                // beyond the end of the text makes Qt print "QTextCursor::setPosition: Position
+                                // '...' out of range". So ask only for positions inside the text. The length is
+                                // read, not the text: for rich text Qt builds the whole HTML again on every read.
                                 readonly property rect lineRect: {
                                     diffText.width;
                                     diffText.contentHeight;
-                                    diffText.text;
-                                    return diffText.positionToRectangle(openBtn.modelData.off);
+                                    var len = diffText.length;
+                                    return openBtn.modelData.off <= len
+                                        ? diffText.positionToRectangle(openBtn.modelData.off)
+                                        : Qt.rect(0, 0, 0, 0);
                                 }
 
+                                visible: lineRect.height > 0
                                 x: diffText.width - width
                                 y: lineRect.y
                                 width: root.openButtonWidth
