@@ -21,6 +21,8 @@ KCM.SimpleKCM {
     property int cfg_intervalMinutesDefault
     property bool cfg_autoUnlockDefault
     property int cfg_unlockHoursDefault
+    // Set on the Performance page; read here for the connection test of ALL / a pattern.
+    property int cfg_maxAutoBranches: Helpers.MAX_AUTO_BRANCHES
 
     readonly property string scriptPath: Helpers.urlToPath(Qt.resolvedUrl("../code/check.sh"))
     readonly property string agentScriptPath: Helpers.urlToPath(Qt.resolvedUrl("../code/agent.sh"))
@@ -228,14 +230,14 @@ KCM.SimpleKCM {
                     page.testText = lr.msg;
                     return;
                 }
-                var shown = Helpers.resolveBranches(branchField.text, lr.branches);
+                var shown = Helpers.resolveBranches(branchField.text, lr.branches, page.cfg_maxAutoBranches);
                 if (shown.length === 0) {
                     page.testOk = false;
                     page.testText = i18n("The repository is reachable (%1 branches), but none of them matches.", lr.branches.length);
                 } else {
                     page.testText = i18n("Success. %1 branches will be watched: %2", shown.length, shown.join(", "));
                     if (lr.branches.length > shown.length && Helpers.hasWildcard(branchField.text)) {
-                        page.testText += "\n" + i18n("(The repository has %1 branches; at most %2 are taken for ALL or a pattern.)", lr.branches.length, Helpers.MAX_AUTO_BRANCHES);
+                        page.testText += "\n" + i18n("(The repository has %1 branches; at most %2 are taken for ALL or a pattern, see the Performance page.)", lr.branches.length, Helpers.autoBranchLimit(page.cfg_maxAutoBranches));
                     }
                 }
                 return;

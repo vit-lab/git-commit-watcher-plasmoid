@@ -236,25 +236,49 @@ prepare_cache() {
     return 0
 }
 
+# The number of commits per branch that the cache repository is known to hold (file gcw-depth; a cache
+# made before this file existed holds the 50 + 1 commits that were downloaded then).
+cache_depth() {
+    local d
+    d=$(head -n1 "$DIR/gcw-depth" 2>/dev/null)
+    case "$d" in
+        "" | *[!0-9]*) d=51 ;;
+    esac
+    printf '%s' "$d"
+}
+
 # Fetches the given refspecs into the cache repository: the last LIMIT+1 commits (the extra one is
 # the parent of the oldest listed commit, so that its changes can be shown), without file contents.
+# A fetch with a smaller number than before may shorten what the cache holds, so the number is lowered.
 fetch_cache() {
-    net_fetch "$DIR" --no-tags --depth="$((LIMIT + 1))" --filter=blob:none origin "$@"
+    net_fetch "$DIR" --no-tags --depth="$((LIMIT + 1))" --filter=blob:none origin "$@" || return 1
+    if [ "$((LIMIT + 1))" -lt "$(cache_depth)" ] || [ ! -f "$DIR/gcw-depth" ]; then
+        printf '%s\n' "$((LIMIT + 1))" > "$DIR/gcw-depth" 2>/dev/null
+    fi
+    return 0
 }
 
 # The first check of a round: fetches every watched branch whose tip on the remote ($HEADS) is not
-# in the cache yet, in one go.
+# in the cache yet, in one go. When more commits per branch are wanted than the cache holds (the setting
+# was raised), all watched branches are fetched again, which only downloads the older commits.
 fetch_watched() {
-    local specs=() b tip have
+    local specs=() b tip have deepen=""
+    [ "$(cache_depth)" -lt "$((LIMIT + 1))" ] && deepen=1
     for b in $BRANCHES; do
         git check-ref-format "refs/heads/$b" 2>/dev/null || continue
         tip=$(printf '%s\n' "$HEADS" | awk -v ref="refs/heads/$b" '$2 == ref { print $1; exit }')
         [ -n "$tip" ] || continue
         have=$(git -C "$DIR" rev-parse --verify --quiet "refs/gcw/tips/$b^{commit}")
-        [ "$tip" = "$have" ] || specs+=("+refs/heads/$b:refs/gcw/tips/$b")
+        if [ -n "$deepen" ] || [ "$tip" != "$have" ]; then
+            specs+=("+refs/heads/$b:refs/gcw/tips/$b")
+        fi
     done
     [ "${#specs[@]}" -gt 0 ] || return 0
-    fetch_cache "${specs[@]}"
+    fetch_cache "${specs[@]}" || return 1
+    if [ -n "$deepen" ]; then
+        printf '%s\n' "$((LIMIT + 1))" > "$DIR/gcw-depth" 2>/dev/null
+    fi
+    return 0
 }
 
 # Removes caches that are no longer used: the per-branch caches of version 1.3 and older (folders with
@@ -267,6 +291,9 @@ cleanup_caches() {
     find "$base" -mindepth 1 -maxdepth 1 -type d -name '????????????' -exec test -f '{}/HEAD' ';' \
         -exec "${idle[@]}" rm -rf '{}' + 2>/dev/null
     find "$base/repos" -mindepth 2 -maxdepth 2 -name gcw-used -mtime +30 -printf '%h\0' 2>/dev/null \
+        | xargs -0 -r "${idle[@]}" rm -rf
+    # The history copies of the search in the whole history (search.sh), unused for 30 days.
+    find "$base/history" -mindepth 2 -maxdepth 2 -name gcw-used -mtime +30 -printf '%h\0' 2>/dev/null \
         | xargs -0 -r "${idle[@]}" rm -rf
 }
 

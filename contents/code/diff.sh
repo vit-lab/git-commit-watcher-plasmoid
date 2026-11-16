@@ -50,8 +50,24 @@ else
     [ -d "$DIR/objects" ] || fail "No cached data for this repository yet."
 fi
 
-FULL=$(git -C "$DIR" rev-parse --verify --quiet "${HASH}^{commit}" 2>/dev/null) \
-    || fail "Commit $HASH is not available locally (try again after the next check)."
+FULL=$(git -C "$DIR" rev-parse --verify --quiet "${HASH}^{commit}" 2>/dev/null)
+if [ -z "$FULL" ] && [ ! -d "$REPO" ] && [ "${#HASH}" -eq 40 ]; then
+    # An older commit than the cache holds (found by the search in the whole history): download it with
+    # its parent, without file contents. Fetches of one cache take turns with the checks (see check.sh).
+    fetch_commit() {
+        "${TOF[@]}" git -C "$DIR" fetch --quiet --no-tags --depth=2 --filter=blob:none origin "$HASH" 2>&1
+    }
+    LOCK="${XDG_RUNTIME_DIR:-}/gcw-$(printf '%s' "$DIR" | sha1sum | cut -c1-12).lock"
+    if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "${XDG_RUNTIME_DIR:-}" ] && command -v flock >/dev/null 2>&1; then
+        ERR=$( ( flock -w 200 9 || { printf 'Timed out waiting for a check of this repository.'; exit 1; }
+                 fetch_commit ) 9>"$LOCK" ) \
+            || fail "Downloading the commit failed: $(printf '%s' "$ERR" | tail -n 3)"
+    else
+        ERR=$(fetch_commit) || fail "Downloading the commit failed: $(printf '%s' "$ERR" | tail -n 3)"
+    fi
+    FULL=$(git -C "$DIR" rev-parse --verify --quiet "${HASH}^{commit}" 2>/dev/null)
+fi
+[ -n "$FULL" ] || fail "Commit $HASH is not available locally (try again after the next check)."
 
 # A shallow copy does not have the parent of its oldest commit, and git would show that commit as if
 # it added every file of the repository (and download all of them).

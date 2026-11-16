@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Search: the magnifier button in the header (or Ctrl+F) opens a search field above the commit list. The list
+  then keeps the commits whose message or author contains every typed word, or whose hash begins with it
+  (4 or more characters), among all downloaded commits and not only the ones shown so far. Escape or a
+  second click on the button ends the search, and so does closing the popup.
+- Search in the whole history: the "All history" button next to the search field (or Enter) runs the same
+  search in every commit of the shown branches, not only in the downloaded ones, and lists the newest 200
+  matching commits per repository. Their changes can be opened like those of any other commit. A local clone
+  is searched directly. For a repository watched by URL, the first such search downloads the list of all
+  commits of its watched branches (no file contents) into `~/.cache/gitcommitwatcher/history/`; later
+  searches only download what is new, and a copy that has not been used for 30 days is deleted.
+- Settings page "Performance", with a "Reset to defaults" button:
+  - "Commits shown at first" (100; 0 = all): the list shows the newest commits and ends with "Show 100 more"
+    and "Show all", instead of holding every commit at once. With many branches the list had more than a
+    thousand rows, and scrolling through them was not smooth. The list goes back to the first part when the
+    popup closes or another choice of repositories or branches is made.
+  - "Commits per branch" (50, as before): how many recent commits of each branch are downloaded and listed.
+    After it is raised, the next check downloads the older commits of the watched branches.
+  - "Branches for ALL or a pattern" (30, as before): the most branches of one repository that are watched
+    for ALL or a pattern.
+
 ### Fixed
 
 - Opening the changes of a commit filled the system log with "QTextCursor::setPosition: Position '…' out of
@@ -15,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- The rows of the commit list are used again while scrolling, instead of being created anew.
 - One check process per repository instead of one per branch: a repository watched on many branches (ALL)
   is checked in one process, and its result updates the widget once. With about a hundred branches, starting
   a process for each of them and updating the badge, tooltip and list after every single result kept the

@@ -109,8 +109,15 @@ function splitBranches(s) {
     return out;
 }
 
-// "ALL" (any case) or a pattern with * or ? (release/*) stands for every branch that matches.
+// "ALL" (any case) or a pattern with * or ? (release/*) stands for every branch that matches; at most
+// this many of them are taken (the default of the setting "maxAutoBranches").
 var MAX_AUTO_BRANCHES = 30;
+
+// The value of the setting, or the default for anything that is not a number of at least 1.
+function autoBranchLimit(max) {
+    var n = parseInt(max, 10);
+    return n >= 1 ? n : MAX_AUTO_BRANCHES;
+}
 
 function isWildcardToken(t) {
     return /^all$/i.test(t) || /[*?]/.test(t);
@@ -130,8 +137,8 @@ function tokenRegExp(t) {
 
 // The branches to watch: the listed ones, then (alphabetically, main and master first) the ones among
 // `available` that match an ALL / pattern entry. `available` = branch names found in the repository, or
-// null if they are not known yet.
-function resolveBranches(str, available) {
+// null if they are not known yet. `max` (optional) = the most branches taken for ALL / patterns.
+function resolveBranches(str, available, max) {
     var toks = splitBranches(str);
     var out = [];
     var pats = [];
@@ -150,7 +157,7 @@ function resolveBranches(str, available) {
         extra.sort(function(a, b) {
             return rank(a) - rank(b) || (a < b ? -1 : a > b ? 1 : 0);
         });
-        out = out.concat(extra.slice(0, MAX_AUTO_BRANCHES));
+        out = out.concat(extra.slice(0, autoBranchLimit(max)));
     }
     return out;
 }
@@ -161,11 +168,12 @@ function resolveBranches(str, available) {
 // the id of the repository (so the saved state of an existing single-branch repository still applies),
 // all others get "<id>:<branch>". Every entry has parentId (the id of the repository setting), baseName
 // (the name without the branch) and multi (true if the repository has more than one branch).
-function expandRepos(repos, discovered) {
+// `maxAuto` (optional) = the most branches taken for ALL / patterns.
+function expandRepos(repos, discovered, maxAuto) {
     var out = [];
     for (var i = 0; i < repos.length; ++i) {
         var r = repos[i];
-        var branches = resolveBranches(r.branch, discovered ? discovered[r.id] : null);
+        var branches = resolveBranches(r.branch, discovered ? discovered[r.id] : null, maxAuto);
         var listed = splitBranches(r.branch).filter(function(t) { return !isWildcardToken(t); }).length;
         var base = repoDisplayName(r);
         if (branches.length <= 1 && !hasWildcard(r.branch)) {
@@ -507,6 +515,70 @@ function diffToHtml(lines, pal) {
                  + (bg ? ";background-color:" + bg : "") + '">' + body + "</p>");
     }
     return out.join("");
+}
+
+// The commits of `list` that match the search text `query`. The text is split into words, and a commit
+// matches when every word is found in its message or its author (upper and lower case are the same), or is
+// the beginning of its hash (4 or more characters). An empty text gives the list itself.
+function filterCommits(list, query) {
+    var words = String(query || "").toLowerCase().split(/\s+/).filter(function(w) { return w !== ""; });
+    if (words.length === 0) {
+        return list;
+    }
+    var isHash = words.map(function(w) { return /^[0-9a-f]{4,40}$/.test(w); });
+    return list.filter(function(c) {
+        var text = (String(c.subject || "") + "\n" + String(c.author || "")).toLowerCase();
+        var hash = String(c.hash || "").toLowerCase();
+        for (var i = 0; i < words.length; ++i) {
+            if (text.indexOf(words[i]) < 0 && !(isHash[i] && hash.indexOf(words[i]) === 0)) {
+                return false;
+            }
+        }
+        return true;
+    });
+}
+
+// The search in the whole history of the watched branches of one repository (search.sh).
+// o.branches: the branches to search (none = the default one); o.query: the search text; o.max: the most
+// commits wanted.
+function searchCommand(script, o) {
+    return "GCW_REPO=" + q(o.repo)
+        + " GCW_BRANCHES=" + q((o.branches || []).join(" "))
+        + " GCW_KEY=" + q(o.key)
+        + " GCW_TOKEN_FILE=" + q(o.tokenFile)
+        + " GCW_QUERY=" + q(o.query)
+        + " GCW_MAX=" + (o.max || 200)
+        + " bash " + q(script) + uniq();
+}
+
+// The output of search.sh: { ok, msg, code, more (there are more commits than were asked for),
+// commits: like parseOutput, each with `branch` (the watched branch it was found on, or "") }.
+function parseSearch(stdout, stderr, exitCode) {
+    var res = { ok: false, msg: "", code: "", more: false, commits: [] };
+    var info = {};
+    var lines = String(stdout || "").split("\n");
+    for (var i = 0; i < lines.length; ++i) {
+        var line = lines[i];
+        if (line.charAt(0) === "C" && line.charAt(1) === US) {
+            var p = line.split(US);
+            res.commits.push({
+                hash: p[1], short: p[2], author: p[3], subject: p[4], when: p[5],
+                ts: parseInt(p[6], 10) || 0, branch: p[7] || ""
+            });
+        } else {
+            var k = line.indexOf("=");
+            if (k > 0) {
+                info[line.substring(0, k)] = line.substring(k + 1);
+            }
+        }
+    }
+    res.ok = info.STATUS === "ok";
+    res.code = info.CODE || "";
+    res.more = info.MORE === "1";
+    if (!res.ok) {
+        res.msg = info.MSG || String(stderr || "").trim() || ("Search failed (exit code " + exitCode + ")");
+    }
+    return res;
 }
 
 // Commit subject for a StyledText label: issue references (#123, ABC-123) in the link color.
