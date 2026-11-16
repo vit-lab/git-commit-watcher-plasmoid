@@ -519,18 +519,33 @@ function diffToHtml(lines, pal) {
 
 // The commits of `list` that match the search text `query`. The text is split into words, and a commit
 // matches when every word is found in its message or its author (upper and lower case are the same), or is
-// the beginning of its hash (4 or more characters). An empty text gives the list itself.
-function filterCommits(list, query) {
+// the beginning of its hash (4 or more characters). Without words and options this is the list itself.
+// The options of the advanced search (opts, optional):
+//   author: only the commits of this author (the whole name, upper and lower case are the same);
+//   field: where the words are looked for: 0 = everywhere, 1 = message, 2 = author, 3 = hash (then a
+//          beginning of any length counts).
+// search.sh does the same for the search in the whole history.
+function filterCommits(list, query, opts) {
     var words = String(query || "").toLowerCase().split(/\s+/).filter(function(w) { return w !== ""; });
-    if (words.length === 0) {
+    var author = String((opts && opts.author) || "").toLowerCase();
+    var field = (opts && opts.field) | 0;
+    if (words.length === 0 && author === "") {
         return list;
     }
-    var isHash = words.map(function(w) { return /^[0-9a-f]{4,40}$/.test(w); });
+    var useHash = field === 0 || field === 3;
+    var isHash = words.map(function(w) {
+        return useHash && /^[0-9a-f]{1,40}$/.test(w) && (w.length >= 4 || field === 3);
+    });
     return list.filter(function(c) {
-        var text = (String(c.subject || "") + "\n" + String(c.author || "")).toLowerCase();
+        var who = String(c.author || "").toLowerCase();
+        if (author !== "" && who !== author) {
+            return false;
+        }
+        var subject = String(c.subject || "").toLowerCase();
+        var text = field === 1 ? subject : field === 2 ? who : field === 3 ? "" : subject + "\n" + who;
         var hash = String(c.hash || "").toLowerCase();
         for (var i = 0; i < words.length; ++i) {
-            if (text.indexOf(words[i]) < 0 && !(isHash[i] && hash.indexOf(words[i]) === 0)) {
+            if ((text === "" || text.indexOf(words[i]) < 0) && !(isHash[i] && hash.indexOf(words[i]) === 0)) {
                 return false;
             }
         }
@@ -538,15 +553,33 @@ function filterCommits(list, query) {
     });
 }
 
+// The authors of the commits of `list`, each once, in alphabetical order (for the author list of the
+// advanced search).
+function authorsOf(list) {
+    var seen = {};
+    var out = [];
+    for (var i = 0; i < list.length; ++i) {
+        var a = String(list[i].author || "");
+        if (a !== "" && !seen[a]) {
+            seen[a] = true;
+            out.push(a);
+        }
+    }
+    out.sort(function(x, y) { return x.toLowerCase() < y.toLowerCase() ? -1 : x.toLowerCase() > y.toLowerCase() ? 1 : 0; });
+    return out;
+}
+
 // The search in the whole history of the watched branches of one repository (search.sh).
 // o.branches: the branches to search (none = the default one); o.query: the search text; o.max: the most
-// commits wanted.
+// commits wanted; o.author and o.field: the options of the advanced search (see filterCommits).
 function searchCommand(script, o) {
     return "GCW_REPO=" + q(o.repo)
         + " GCW_BRANCHES=" + q((o.branches || []).join(" "))
         + " GCW_KEY=" + q(o.key)
         + " GCW_TOKEN_FILE=" + q(o.tokenFile)
         + " GCW_QUERY=" + q(o.query)
+        + " GCW_AUTHOR=" + q(o.author || "")
+        + " GCW_FIELD=" + ((o.field | 0) || 0)
         + " GCW_MAX=" + (o.max || 200)
         + " bash " + q(script) + uniq();
 }

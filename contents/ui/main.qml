@@ -56,15 +56,57 @@ PlasmoidItem {
     readonly property var listCommits: hiddenCount > 0 ? matchedCommits.slice(0, shownLimit) : matchedCommits
     // The search (the button in the header, or Ctrl+F): the list keeps the commits of displayCommits whose
     // message, author or hash match searchText (see Helpers.filterCommits), also the ones that are not
-    // shown yet. It ends when the popup closes.
+    // shown yet. It stays when the popup closes (a search in the whole history can take a while), and ends
+    // with Escape or a second click on the button.
     property bool searchOpen: false
     property string searchText: ""
-    readonly property bool searching: searchText.trim() !== ""
+    // The advanced search (the "Advanced" button next to the search field): only the commits of one author,
+    // and where the words are looked for. Both apply while its row is open.
+    property bool advancedOpen: false
+    property string searchAuthor: ""     // "" = all authors
+    property int searchField: 0          // 0 = everywhere, 1 = message, 2 = author, 3 = hash
+    readonly property var searchOpts: ({ author: searchAuthor, field: searchField })
+    readonly property bool searching: searchText.trim() !== "" || searchAuthor !== ""
+    // What is searched for, as one text: a search in the whole history belongs to it (see deepQuery).
+    readonly property string searchKey: searchText.trim() + "\n" + searchAuthor + "\n" + searchField
+    // The same for the messages of the list: the text, and the author if one is chosen.
+    readonly property string searchSummary: {
+        var parts = [];
+        if (searchText.trim() !== "") {
+            parts.push("\"" + searchText.trim() + "\"");
+        }
+        if (searchAuthor !== "") {
+            parts.push(i18n("author %1", searchAuthor));
+        }
+        return parts.join(", ");
+    }
+    // The authors to choose from: the ones of the downloaded commits of the shown branches.
+    readonly property var authorChoices: {
+        var names = advancedOpen ? Helpers.authorsOf(displayCommits) : [];
+        if (searchAuthor !== "" && names.indexOf(searchAuthor) < 0) {
+            names.unshift(searchAuthor);
+        }
+        return [i18n("All authors")].concat(names);
+    }
+    function setAdvancedOpen(open) {
+        advancedOpen = open;
+        if (!open) {
+            searchAuthor = "";
+            searchField = 0;
+        }
+    }
+    function clearSearch() {
+        searchText = "";
+        searchAuthor = "";
+        searchField = 0;
+        searchCleared();
+    }
+    signal searchCleared()
     readonly property var matchedCommits: deepActive ? deepCommits
-        : searching ? Helpers.filterCommits(displayCommits, searchText) : displayCommits
-    onSearchTextChanged: {
+        : searching ? Helpers.filterCommits(displayCommits, searchText, searchOpts) : displayCommits
+    onSearchKeyChanged: {
         extraShown = 0;
-        if (deepState !== "" && searchText.trim() !== deepQuery) {
+        if (deepState !== "" && searchKey !== deepQuery) {
             cancelDeepSearch();
         }
     }
@@ -75,14 +117,14 @@ PlasmoidItem {
     // list until the search text changes.
     readonly property int deepMax: 200   // the most commits taken per repository
     property string deepState: ""        // "" | running | done
-    property string deepQuery: ""        // the text that is (or was) searched
+    property string deepQuery: ""        // what is (or was) searched: the searchKey of that moment
     property var deepCommits: []         // the result, entries like the ones of displayCommits
     property bool deepMore: false        // a repository has more than deepMax matching commits
     property var deepErrors: []          // "<repository>: <message>" of the repositories that failed
     property var deepMap: ({})           // running search command -> repository id
     property var deepFound: []           // the result so far, while repositories are still searched
     readonly property bool deepRunning: deepState === "running"
-    readonly property bool deepActive: deepState === "done" && searching && deepQuery === searchText.trim()
+    readonly property bool deepActive: deepState === "done" && searching && deepQuery === searchKey
 
     function cancelDeepSearch() {
         for (var cmd in deepMap) {
@@ -103,7 +145,8 @@ PlasmoidItem {
 
     function startDeepSearch() {
         var query = searchText.trim();
-        if (query === "" || (deepState !== "" && deepQuery === query)) {
+        var key = searchKey;
+        if (!searching || (deepState !== "" && deepQuery === key)) {
             return;
         }
         cancelDeepSearch();
@@ -124,7 +167,7 @@ PlasmoidItem {
         if (order.length === 0) {
             return;
         }
-        deepQuery = query;
+        deepQuery = key;
         deepState = "running";
         extraShown = 0;
         for (var k = 0; k < order.length; ++k) {
@@ -132,7 +175,7 @@ PlasmoidItem {
             var cmd = Helpers.searchCommand(searchScriptPath, {
                 repo: units[0].path, key: units[0].sshKey, tokenFile: units[0].tokenFile,
                 branches: units.map(function(x) { return x.branch; }).filter(function(b) { return b !== ""; }),
-                query: query, max: deepMax
+                query: query, author: searchAuthor, field: searchField, max: deepMax
             });
             deepMap[cmd] = order[k];
             searcher.connectSource(cmd);
@@ -184,6 +227,7 @@ PlasmoidItem {
     function closeSearch() {
         searchOpen = false;
         searchText = "";
+        setAdvancedOpen(false);
         cancelDeepSearch();
     }
     property string problemsSig: ""
@@ -1482,12 +1526,16 @@ PlasmoidItem {
             } else {
                 bumpNow();
             }
+            if (searchOpen) {
+                Qt.callLater(function() { root.searchFocusWanted(); });
+            }
         } else {
             for (var j = 0; j < repoList.length; ++j) {
                 st(repoList[j].id).highlight = 0;
             }
+            // The search stays, also a running one in the whole history: its result is there when the
+            // popup opens again.
             extraShown = 0;
-            closeSearch();
             closeDiff();
             bumpNow();
         }
@@ -2348,6 +2396,10 @@ PlasmoidItem {
                                 commitSearch.text = "";
                             }
                         }
+                        function onSearchCleared() {
+                            commitSearch.text = "";
+                            commitSearch.forceActiveFocus();
+                        }
                     }
                 }
                 PlasmaComponents.Button {
@@ -2374,6 +2426,83 @@ PlasmoidItem {
                             ? i18n("%1+ in all history", root.matchedCommits.length)
                             : i18np("%1 in all history", "%1 in all history", root.matchedCommits.length))
                         : i18np("%1 commit", "%1 commits", root.matchedCommits.length)
+                }
+                PlasmaComponents.ToolButton {
+                    // Opens the row below: the author and where to look. Closing it takes both away.
+                    icon.name: "view-filter"
+                    text: i18n("Advanced")
+                    display: PlasmaComponents.AbstractButton.TextBesideIcon
+                    checked: root.advancedOpen
+                    onClicked: root.setAdvancedOpen(!root.advancedOpen)
+                    PlasmaComponents.ToolTip.text: root.advancedOpen ? i18n("Close the advanced search")
+                                                                     : i18n("Advanced search: choose an author and where to look")
+                    PlasmaComponents.ToolTip.visible: hovered
+                    PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+                }
+            }
+
+            // The advanced search: the author, where the words are looked for, and "Clear". "All history"
+            // above (or Enter) searches with them too.
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
+                visible: root.searchOpen && root.advancedOpen
+
+                PlasmaComponents.ComboBox {
+                    id: authorBox
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: Kirigami.Units.gridUnit * 16
+                    model: root.authorChoices
+                    function sync() {
+                        var i = root.searchAuthor === "" ? 0 : root.authorChoices.indexOf(root.searchAuthor);
+                        currentIndex = Math.max(0, i);
+                    }
+                    onModelChanged: sync()
+                    Component.onCompleted: sync()
+                    onActivated: index => root.searchAuthor = index > 0 ? root.authorChoices[index] : ""
+                    Connections {
+                        target: root
+                        function onSearchAuthorChanged() {
+                            authorBox.sync();
+                        }
+                    }
+                    PlasmaComponents.ToolTip.text: i18n("Show only the commits of one author. The list has the authors of the downloaded commits; for anyone else, type the name in the search field and choose \"In the author\".")
+                    PlasmaComponents.ToolTip.visible: hovered && !popup.visible
+                    PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+                }
+                PlasmaComponents.ComboBox {
+                    id: fieldBox
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 10
+                    model: [i18n("Everywhere"), i18n("In the message"), i18n("In the author"), i18n("In the hash")]
+                    function sync() {
+                        currentIndex = root.searchField;
+                    }
+                    Component.onCompleted: sync()
+                    onActivated: index => root.searchField = index
+                    Connections {
+                        target: root
+                        function onSearchFieldChanged() {
+                            fieldBox.sync();
+                        }
+                    }
+                    PlasmaComponents.ToolTip.text: i18n("Where the typed words are looked for")
+                    PlasmaComponents.ToolTip.visible: hovered && !popup.visible
+                    PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+                }
+                PlasmaComponents.Button {
+                    icon.name: "edit-clear-all"
+                    text: i18n("Clear")
+                    enabled: root.searchText !== "" || root.searchAuthor !== "" || root.searchField !== 0
+                    onClicked: root.clearSearch()
+                    PlasmaComponents.ToolTip.text: i18n("Empty the search field and take the author and the place back")
+                    PlasmaComponents.ToolTip.visible: hovered
+                    PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+                }
+                Item {
+                    Layout.fillWidth: true
                 }
             }
 
@@ -2837,8 +2966,8 @@ PlasmoidItem {
                                     return i18n("Searching all history…");
                                 }
                                 return root.deepActive
-                                    ? i18n("No commit in the whole history matches \"%1\"", root.searchText.trim())
-                                    : i18n("No downloaded commit matches \"%1\"", root.searchText.trim());
+                                    ? i18n("No commit in the whole history matches %1", root.searchSummary)
+                                    : i18n("No downloaded commit matches %1", root.searchSummary);
                             }
                             if (root.unconfigured) {
                                 return i18n("No repository configured");
@@ -2857,12 +2986,13 @@ PlasmoidItem {
                             }
                             return i18n("No commits found");
                         }
-                        helpfulAction: Kirigami.Action {
-                            visible: root.unconfigured
-                            text: i18n("Configure…")
-                            icon.name: "configure"
-                            onTriggered: root.openConfig()
-                        }
+                        helpfulAction: root.unconfigured ? configureAction : null
+                    }
+                    Kirigami.Action {
+                        id: configureAction
+                        text: i18n("Configure…")
+                        icon.name: "configure"
+                        onTriggered: root.openConfig()
                     }
 
                     // The download of the first check (or of a check that brings many new commits).

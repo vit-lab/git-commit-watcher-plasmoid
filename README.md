@@ -82,13 +82,13 @@ search for "Git Commit Watcher". The store page also offers the `.plasmoid` file
 
 ### From the release package
 
-Download `git-commit-watcher-1.4.plasmoid` from the
+Download `git-commit-watcher-1.5.plasmoid` from the
 [latest release](https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/latest). Use the file listed
 under Assets; the automatic "Source code" archives are not installable packages.
 
 ```sh
-curl -LO https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/download/v1.4/git-commit-watcher-1.4.plasmoid
-kpackagetool6 -t Plasma/Applet -i git-commit-watcher-1.4.plasmoid
+curl -LO https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/download/v1.5/git-commit-watcher-1.5.plasmoid
+kpackagetool6 -t Plasma/Applet -i git-commit-watcher-1.5.plasmoid
 ```
 
 The package can also be installed from the widget explorer: right-click the panel or desktop, open
@@ -102,7 +102,7 @@ The installed version and the checksum of the downloaded file can be checked wit
 
 ```sh
 grep Version ~/.local/share/plasma/plasmoids/local.gitcommitwatcher/metadata.json
-sha256sum git-commit-watcher-1.4.plasmoid
+sha256sum git-commit-watcher-1.5.plasmoid
 ```
 
 If the release notes list a SHA-256 checksum, it should match the output of the second command.
@@ -192,7 +192,12 @@ Passphrases and tokens are never stored by the widget. Only the paths of the key
 - The choice of repositories and branches is remembered.
 - The magnifier button in the header (or Ctrl+F) opens a search field. Type words from the commit message or
   the author name, or the beginning of a hash (4 or more characters): the list keeps the commits that match
-  all of them. Escape closes the search.
+  all of them. Escape closes the search; closing the popup does not, so the search is still there when the
+  popup opens again.
+- "Advanced" next to the search field opens a second row: choose an author to see only that author's
+  commits (the list has the authors of the downloaded commits), choose where the typed words are looked for
+  (everywhere, message, author or hash), and "Clear" empties everything. Closing the row takes the author
+  and the place back.
 - The search looks through the downloaded commits (the last 50 of every branch by default). "All history"
   next to the search field, or Enter, searches every commit of the shown branches instead and lists the
   newest 200 matching commits per repository. For a repository watched by URL, the first such search

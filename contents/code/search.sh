@@ -4,7 +4,9 @@
 #
 # Input (environment): GCW_REPO, GCW_BRANCHES (space-separated; empty = the upstream branch of a local
 #   clone, or the default branch of a remote URL), GCW_KEY, GCW_TOKEN_FILE,
-#   GCW_QUERY (the search text), GCW_MAX (the most commits printed, 200 by default).
+#   GCW_QUERY (the search text), GCW_MAX (the most commits printed, 200 by default),
+#   GCW_AUTHOR (optional: only the commits of this author, the whole name),
+#   GCW_FIELD (optional: where the words are looked for: 0 = everywhere, 1 = subject, 2 = author, 3 = hash).
 # Output: "STATUS=ok", one line per found commit (newest first), then "MORE=1" if there are more than
 #   GCW_MAX, else "MORE=0":
 #     C<US>hash<US>short<US>author<US>subject<US>relative-date<US>unix-time<US>branch
@@ -12,7 +14,7 @@
 #
 # A commit matches like in the list of the widget (Helpers.filterCommits): every word of the text is in
 # its subject or its author (upper and lower case are the same), or is the beginning of its hash (4 or
-# more characters).
+# more characters; of any length when only the hash is searched). With GCW_AUTHOR the text may be empty.
 #
 # A local clone has its history already. For a remote URL the checks keep only the last commits (see
 # check.sh), so the search has a second copy of its own, in ~/.cache/gitcommitwatcher/history/: all the
@@ -50,7 +52,7 @@ case "$MAX" in
 esac
 
 [ -n "$REPO" ] || fail "No repository configured."
-[ -n "$(printf '%s' "${GCW_QUERY:-}" | tr -d '[:space:]')" ] || fail "Nothing to search for."
+[ -n "$(printf '%s' "${GCW_QUERY:-}${GCW_AUTHOR:-}" | tr -d '[:space:]')" ] || fail "Nothing to search for."
 command -v git >/dev/null 2>&1 || fail "git is not installed."
 
 TO=()
@@ -135,27 +137,36 @@ fi
 set +f
 
 printf 'STATUS=ok\n'
-export GCW_QUERY
+export GCW_QUERY GCW_AUTHOR GCW_FIELD
 "${TO[@]}" git -C "$DIR" log --no-color --source \
     --format="C${US}%H${US}%h${US}%an${US}%s${US}%cr${US}%ct${US}%S" "${REFS[@]}" -- 2>/dev/null \
     | awk -F"$US" -v OFS="$US" -v max="$MAX" -v prefix="$PREFIX" '
         BEGIN {
+            author = tolower(ENVIRON["GCW_AUTHOR"])
+            field = ENVIRON["GCW_FIELD"] + 0
+            use_hash = (field == 0 || field == 3)
             n = split(tolower(ENVIRON["GCW_QUERY"]), raw, /[ \t\r\n]+/)
             nw = 0
             for (i = 1; i <= n; ++i) {
                 if (raw[i] != "") {
                     w[++nw] = raw[i]
                     # a possible beginning of a hash: 4 to 40 characters, all of them 0-9 or a-f
-                    hex[nw] = (length(raw[i]) >= 4 && length(raw[i]) <= 40 && raw[i] !~ /[^0-9a-f]/)
+                    # (any length when only the hash is searched)
+                    hex[nw] = (use_hash && (length(raw[i]) >= 4 || field == 3) && length(raw[i]) <= 40 \
+                               && raw[i] !~ /[^0-9a-f]/)
                 }
             }
             found = 0
             more = 0
         }
         $1 == "C" {
-            text = tolower($5 "\n" $4)
+            who = tolower($4)
+            if (author != "" && who != author) {
+                next
+            }
+            text = field == 1 ? tolower($5) : field == 2 ? who : field == 3 ? "" : tolower($5 "\n" $4)
             for (i = 1; i <= nw; ++i) {
-                if (index(text, w[i]) == 0 && !(hex[i] && index($2, w[i]) == 1)) {
+                if ((text == "" || index(text, w[i]) == 0) && !(hex[i] && index($2, w[i]) == 1)) {
                     next
                 }
             }

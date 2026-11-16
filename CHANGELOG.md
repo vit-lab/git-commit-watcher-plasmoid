@@ -4,20 +4,25 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.5] - 2026-11-16
 
 ### Added
 
 - Search: the magnifier button in the header (or Ctrl+F) opens a search field above the commit list. The list
   then keeps the commits whose message or author contains every typed word, or whose hash begins with it
   (4 or more characters), among all downloaded commits and not only the ones shown so far. Escape or a
-  second click on the button ends the search, and so does closing the popup.
+  second click on the button ends the search; it stays when the popup is closed and opened again.
 - Search in the whole history: the "All history" button next to the search field (or Enter) runs the same
   search in every commit of the shown branches, not only in the downloaded ones, and lists the newest 200
   matching commits per repository. Their changes can be opened like those of any other commit. A local clone
   is searched directly. For a repository watched by URL, the first such search downloads the list of all
   commits of its watched branches (no file contents) into `~/.cache/gitcommitwatcher/history/`; later
-  searches only download what is new, and a copy that has not been used for 30 days is deleted.
+  searches only download what is new, and a copy that has not been used for 30 days is deleted. The search
+  goes on while the popup is closed, and its result is shown when the popup opens again.
+- Advanced search: the "Advanced" button next to the search field opens a row with a list of authors (only
+  the commits of the chosen one are shown, also without any search text), a choice of where the typed words
+  are looked for (everywhere, in the message, in the author, in the hash) and "Clear". "All history" searches
+  with these options too.
 - Settings page "Performance", with a "Reset to defaults" button:
   - "Commits shown at first" (100; 0 = all): the list shows the newest commits and ends with "Show 100 more"
     and "Show all", instead of holding every commit at once. With many branches the list had more than a
@@ -214,7 +219,8 @@ First public release.
   Local File…*), and `scripts/package.sh` to build it from the source.
 - Documentation: `README.md`, `SECURITY.md`, this changelog and issue templates.
 
-[Unreleased]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.4...HEAD
+[Unreleased]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.5...HEAD
+[1.5]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.4...v1.5
 [1.4]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.3...v1.4
 [1.3]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.2...v1.3
 [1.2]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.1...v1.2
