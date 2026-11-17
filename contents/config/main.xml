@@ -134,6 +134,10 @@
     </entry>
 
     <!-- Behavior / appearance -->
+    <entry name="branchRowsFolded" type="Bool">
+      <!-- the branch rows of the popup are folded into one line -->
+      <default>false</default>
+    </entry>
     <entry name="showBadge" type="Bool">
       <default>true</default>
     </entry>

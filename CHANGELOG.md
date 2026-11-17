@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- The branch rows of the popup can be folded: with two or more of them, a "Branches" line above them folds
+  them into itself and unfolds them again (remembered). Folded, it says how many repositories it holds and
+  whether some branches are chosen ("all branches", "a choice of branches in 1 repository").
+
 ## [1.6.1] - 2026-11-17
 
 ### Changed

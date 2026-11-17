@@ -34,6 +34,17 @@ The context menu of the widget:
 - Monitoring of several repositories, either local clones or remote SSH/HTTPS URLs, each with its own branch,
   SSH key and token file. One repository can be watched on several branches (`main, dev`), on all of its
   branches (`ALL`) or on those matching a pattern (`release/*`) without adding it twice.
+- Choosing what the popup shows: tick any repositories in the drop-down, and the branches of a repository in
+  its "Branches" list (with a search field when there are many). Every repository name has its own color in
+  the list, and the choice is remembered. With many repositories, the branch rows fold into one line.
+- Search (the magnifier button or Ctrl+F) by message, author or hash, in the downloaded commits or with "All
+  history" in every commit of the shown branches, and an "Advanced" row with an author filter.
+- Small downloads: a repository watched by URL is kept as one small copy shared by all its branches, with only
+  the recent commits and folder listings; the files of a commit are downloaded when its changes are opened.
+- Light on the desktop: one check process per repository, with a low processor and disk priority, and a
+  "Performance" settings page (commits shown at first, commits per branch, branches for ALL).
+- Download progress (step, size, speed, time left) while a check runs, a stop button for a check that hangs,
+  and a small blinking green dot on the panel icon while a check runs.
 - Text size of the commit list and of the diff view can be changed with Ctrl + mouse wheel (remembered).
 - Notifications as a single summary, one per commit, or only for the latest commit. Urgency, timeout, icon and
   sound are configurable, and the author and short hash can be shown or hidden. The sound can be a system

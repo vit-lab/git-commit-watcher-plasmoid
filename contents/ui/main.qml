@@ -296,6 +296,33 @@ PlasmoidItem {
         return names.join(", ");
     }
     readonly property bool showBranchBar: branchGroups.length > 0
+    // With several branch rows they can be folded into one line (remembered): with many repositories they
+    // take a lot of room.
+    readonly property bool branchRowsFoldable: branchGroups.length > 1
+    readonly property bool branchRowsFolded: branchRowsFoldable && cfg.branchRowsFolded
+    // Shown next to the folded line, so that a choice of branches is not hidden by surprise.
+    readonly property string branchFoldSummary: {
+        root.rev;
+        root.selBranches;
+        var some = 0, none = 0;
+        for (var i = 0; i < branchGroups.length; ++i) {
+            var g = branchGroups[i];
+            var k = shownUnits(g.id).length;
+            if (k === 0) {
+                none++;
+            } else if (k < g.branches.length) {
+                some++;
+            }
+        }
+        var parts = [];
+        if (some > 0) {
+            parts.push(i18np("a choice of branches in %1 repository", "a choice of branches in %1 repositories", some));
+        }
+        if (none > 0) {
+            parts.push(i18np("no branch chosen in %1 repository", "no branch chosen in %1 repositories", none));
+        }
+        return parts.length > 0 ? parts.join(", ") : i18n("all branches");
+    }
     readonly property string headerTitle: { root.rev; return parentCount() === 1 ? repoList[0].baseName : i18n("Plasma Git Watcher"); }
 
     // Re-read the repository list whenever the setting changes (e.g. after "Apply").
@@ -2559,6 +2586,34 @@ PlasmoidItem {
                 }
             }
 
+            // With several branch rows, a line that folds them into itself and unfolds them again (remembered).
+            // Folded, it says whether some branches are chosen.
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                visible: root.branchRowsFoldable
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.ToolButton {
+                    icon.name: root.branchRowsFolded ? "arrow-right" : "arrow-down"
+                    text: root.branchRowsFolded
+                          ? i18np("Branches of %1 repository", "Branches of %1 repositories", root.branchGroups.length)
+                          : i18n("Branches")
+                    onClicked: root.cfg.branchRowsFolded = !root.cfg.branchRowsFolded
+                    PlasmaComponents.ToolTip.text: root.branchRowsFolded ? i18n("Show the branch rows") : i18n("Hide the branch rows")
+                    PlasmaComponents.ToolTip.visible: hovered
+                }
+                PlasmaComponents.Label {
+                    Layout.fillWidth: true
+                    visible: root.branchRowsFolded
+                    elide: Text.ElideRight
+                    opacity: 0.7
+                    text: "· " + root.branchFoldSummary
+                }
+            }
+
             // A row for every shown repository that is watched on several branches: a "Branches" button that
             // opens the list of its branches (with check boxes and a search field), and the chosen branches in
             // one line next to it (a click on one takes it away). With no branch chosen, all are shown.
@@ -2567,6 +2622,7 @@ PlasmoidItem {
                 delegate: RowLayout {
                     id: branchRow
                     required property var modelData
+                    visible: !root.branchRowsFolded
                     readonly property var groupData: modelData
                     // The ids of the branches that are shown, and the branches to put in the line.
                     readonly property var shownIds: { root.rev; root.selBranches; return root.shownUnits(groupData.id).map(function(u) { return u.id; }); }
