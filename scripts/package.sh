@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds dist/git-commit-watcher-<version>.plasmoid from the files of this repository.
+# Builds dist/plasma-git-watcher-<version>.plasmoid from the files of this repository.
 # Only the Plasma package itself goes into the archive (metadata.json, contents/, LICENSE).
 set -euo pipefail
 
@@ -8,7 +8,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 VERSION=$(sed -n 's/.*"Version": *"\([^"]*\)".*/\1/p' metadata.json | head -n1)
 [ -n "$VERSION" ] || { echo "Cannot read the version from metadata.json" >&2; exit 1; }
 
-OUT="dist/git-commit-watcher-${VERSION}.plasmoid"
+OUT="dist/plasma-git-watcher-${VERSION}.plasmoid"
 FILES=(metadata.json contents LICENSE)
 
 for f in "${FILES[@]}"; do

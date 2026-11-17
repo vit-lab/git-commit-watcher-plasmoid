@@ -1,4 +1,4 @@
-# Git Commit Watcher helper, sourced by check.sh, diff.sh and openfile.sh: sets up the SSH key and
+# Plasma Git Watcher helper, sourced by check.sh, diff.sh and openfile.sh: sets up the SSH key and
 # the HTTPS token for the git commands that talk to the remote.
 #
 # Expects: KEY and TOKEN_FILE (expanded paths, may be empty) and a "fail" function.
@@ -11,7 +11,7 @@ SSH="ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-n
 if [ -n "$KEY" ]; then
     [ -r "$KEY" ] || fail "SSH key is not readable: $KEY"
     # Is the key protected by a passphrase, and is it unlocked in an ssh-agent?
-    AOUT=$(GCW_KEY="$KEY" bash "$(dirname "${BASH_SOURCE[0]}")/agent.sh" status 2>/dev/null)
+    AOUT=$(PGW_KEY="$KEY" bash "$(dirname "${BASH_SOURCE[0]}")/agent.sh" status 2>/dev/null)
     KSTATE=$(printf '%s\n' "$AOUT" | sed -n 's/^KEY=//p')
     ASOCK=$(printf '%s\n' "$AOUT" | sed -n 's/^AGENT=//p')
     AFP=$(printf '%s\n' "$AOUT" | sed -n 's/^FP=//p')
@@ -49,6 +49,6 @@ fi
 
 # Where the cache repository of a remote URL lives (shared by all its branches).
 cache_dir_of() {
-    printf '%s/repos/%s' "${XDG_CACHE_HOME:-$HOME/.cache}/gitcommitwatcher" \
+    printf '%s/repos/%s' "${XDG_CACHE_HOME:-$HOME/.cache}/plasmagitwatcher" \
         "$(printf '%s' "$1" | sha1sum | cut -c1-12)"
 }

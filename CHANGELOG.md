@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- The project is renamed from "Git Commit Watcher" to **Plasma Git Watcher**: the name in the widget list,
+  the tooltip and the notifications, the package file (`plasma-git-watcher-<version>.plasmoid`) and the
+  repository (<https://github.com/vit-lab/plasma-git-watcher>). The plugin Id stays `local.gitcommitwatcher`,
+  so installed widgets and their settings keep working, and the KDE Store update works as before.
+- The cache folder is now `~/.cache/plasmagitwatcher/`; the old `~/.cache/gitcommitwatcher/` is deleted at the
+  first check. The private ssh-agent has a new socket name, so a key unlocked by an earlier version has to be
+  unlocked once more.
+
 ## [1.5] - 2026-11-16
 
 ### Added
@@ -219,10 +231,10 @@ First public release.
   Local File…*), and `scripts/package.sh` to build it from the source.
 - Documentation: `README.md`, `SECURITY.md`, this changelog and issue templates.
 
-[Unreleased]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.5...HEAD
-[1.5]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.4...v1.5
-[1.4]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.3...v1.4
-[1.3]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.2...v1.3
-[1.2]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.1...v1.2
-[1.1]: https://github.com/vit-lab/git-commit-watcher-plasmoid/compare/v1.0...v1.1
-[1.0]: https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/tag/v1.0
+[Unreleased]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.5...HEAD
+[1.5]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.4...v1.5
+[1.4]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.3...v1.4
+[1.3]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.2...v1.3
+[1.2]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.1...v1.2
+[1.1]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.0...v1.1
+[1.0]: https://github.com/vit-lab/plasma-git-watcher/releases/tag/v1.0

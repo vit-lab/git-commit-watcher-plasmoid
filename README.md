@@ -1,6 +1,6 @@
-# Git Commit Watcher
+# Plasma Git Watcher
 
-Git Commit Watcher is a KDE Plasma 6 widget for monitoring git repositories. It shows a desktop notification
+Plasma Git Watcher is a KDE Plasma 6 widget for monitoring git repositories. It shows a desktop notification
 when new commits appear and displays the changes of each commit in the widget popup.
 
 Read [SECURITY.md](SECURITY.md) before using SSH keys or tokens with the widget. The software comes with no
@@ -76,14 +76,14 @@ The widget has been tested on Arch Linux with KDE Plasma 6 on Wayland.
 
 ### From the KDE Store
 
-Git Commit Watcher is on the [KDE Store](https://www.opendesktop.org/p/2381252). In Plasma, right-click the
+Plasma Git Watcher is on the [KDE Store](https://www.opendesktop.org/p/2381252). In Plasma, right-click the
 panel or desktop, choose "Add or Manage Widgets", then "Get New Widgets" and "Download New Plasma Widgets", and
-search for "Git Commit Watcher". The store page also offers the `.plasmoid` file for download.
+search for "Plasma Git Watcher". The store page also offers the `.plasmoid` file for download.
 
 ### From the release package
 
 Download `git-commit-watcher-1.5.plasmoid` from the
-[latest release](https://github.com/vit-lab/git-commit-watcher-plasmoid/releases/latest). Use the file listed
+[latest release](https://github.com/vit-lab/plasma-git-watcher/releases/latest). Use the file listed
 under Assets; the automatic "Source code" archives are not installable packages.
 
 ```sh
@@ -94,7 +94,7 @@ kpackagetool6 -t Plasma/Applet -i git-commit-watcher-1.5.plasmoid
 The package can also be installed from the widget explorer: right-click the panel or desktop, open
 "Add or Manage Widgets", then "Get New Widgets" and "Install Widget From Local File".
 
-Afterwards, add "Git Commit Watcher" to a panel or the desktop. If the widget is not listed, restart the
+Afterwards, add "Plasma Git Watcher" to a panel or the desktop. If the widget is not listed, restart the
 shell with `systemctl --user restart plasma-plasmashell.service`. (`plasmashell --replace &` also works,
 but it keeps the shell attached to the terminal, so closing the terminal ends the desktop session.)
 
@@ -110,13 +110,13 @@ If the release notes list a SHA-256 checksum, it should match the output of the 
 ### From source
 
 ```sh
-git clone https://github.com/vit-lab/git-commit-watcher-plasmoid.git
-cd git-commit-watcher-plasmoid
+git clone https://github.com/vit-lab/plasma-git-watcher.git
+cd plasma-git-watcher
 ./scripts/package.sh
-kpackagetool6 -t Plasma/Applet -i dist/git-commit-watcher-*.plasmoid
+kpackagetool6 -t Plasma/Applet -i dist/plasma-git-watcher-*.plasmoid
 ```
 
-`scripts/package.sh` creates `dist/git-commit-watcher-<version>.plasmoid`. Do not run `kpackagetool6 -i .` in
+`scripts/package.sh` creates `dist/plasma-git-watcher-<version>.plasmoid`. Do not run `kpackagetool6 -i .` in
 the repository folder, because it may copy the whole repository, including `.git`, into the Plasma directory.
 
 ### Updating
@@ -125,7 +125,7 @@ Remove the installed version, install the new package and restart the shell:
 
 ```sh
 kpackagetool6 -t Plasma/Applet -r local.gitcommitwatcher
-kpackagetool6 -t Plasma/Applet -i git-commit-watcher-<new version>.plasmoid
+kpackagetool6 -t Plasma/Applet -i plasma-git-watcher-<new version>.plasmoid
 grep Version ~/.local/share/plasma/plasmoids/local.gitcommitwatcher/metadata.json
 systemctl --user restart plasma-plasmashell.service
 ```
@@ -137,7 +137,7 @@ installation are done separately.
 
 ```sh
 kpackagetool6 -t Plasma/Applet -r local.gitcommitwatcher
-rm -rf ~/.cache/gitcommitwatcher
+rm -rf ~/.cache/plasmagitwatcher
 ```
 
 The second command deletes the widget's cache and is optional.
@@ -226,11 +226,11 @@ Passphrases and tokens are never stored by the widget. Only the paths of the key
 | Data | Location |
 | --- | --- |
 | Settings: repository list, paths of key and token files, last seen commits, pin and mute state, popup sizes | Plasma configuration, `~/.config/plasma-org.kde.plasma.desktop-appletsrc` |
-| Small copies of repositories watched by URL: the recent commits and folder listings, one copy per URL shared by its branches; file contents are downloaded only for the commits whose changes you open | `~/.cache/gitcommitwatcher/repos/` (a copy unused for 30 days is deleted) |
-| Commit lists for the search in the whole history of repositories watched by URL (commits only, no folder listings or file contents), made by the first "All history" search | `~/.cache/gitcommitwatcher/history/` (a copy unused for 30 days is deleted) |
-| Read-only copies created by "Open File" | `~/.cache/gitcommitwatcher/files/` (deleted after a week) |
-| Socket of the private `ssh-agent` and the passphrase dialog launcher | `$XDG_RUNTIME_DIR` (`gcw-agent-<uid>.sock`, `gcw-askpass-<uid>.sh`) |
-| Small lock and state files of the checks (for example the branch list of the last check), and the download progress of a running check | `$XDG_RUNTIME_DIR` (`gcw-*.lock`, `gcw-*.state`, `gcw-progress-*.txt`, and `gcw-check-<pid>.run` while a check runs), removed at logout |
+| Small copies of repositories watched by URL: the recent commits and folder listings, one copy per URL shared by its branches; file contents are downloaded only for the commits whose changes you open | `~/.cache/plasmagitwatcher/repos/` (a copy unused for 30 days is deleted) |
+| Commit lists for the search in the whole history of repositories watched by URL (commits only, no folder listings or file contents), made by the first "All history" search | `~/.cache/plasmagitwatcher/history/` (a copy unused for 30 days is deleted) |
+| Read-only copies created by "Open File" | `~/.cache/plasmagitwatcher/files/` (deleted after a week) |
+| Socket of the private `ssh-agent` and the passphrase dialog launcher | `$XDG_RUNTIME_DIR` (`pgw-agent-<uid>.sock`, `pgw-askpass-<uid>.sh`) |
+| Small lock and state files of the checks (for example the branch list of the last check), and the download progress of a running check | `$XDG_RUNTIME_DIR` (`pgw-*.lock`, `pgw-*.state`, `pgw-progress-*.txt`, and `pgw-check-<pid>.run` while a check runs), removed at logout |
 
 ## Troubleshooting
 
@@ -268,7 +268,7 @@ contents/config/     settings schema (main.xml) and settings pages (config.qml)
 contents/ui/         main.qml (widget), config*.qml (settings), IconField.qml (icon chooser)
 contents/code/       helpers.js and the shell scripts (check.sh, diff.sh, openfile.sh, agent.sh, askpass.sh)
 contents/icons/      bundled icons (SVG)
-scripts/package.sh   builds dist/git-commit-watcher-<version>.plasmoid
+scripts/package.sh   builds dist/plasma-git-watcher-<version>.plasmoid
 ```
 
 The shell scripts are started through Plasma's `executable` data engine, and every value passed to them is
@@ -280,7 +280,7 @@ list of changes.
 
 ## Reporting issues
 
-Bugs and feature requests go to the [issue tracker](https://github.com/vit-lab/git-commit-watcher-plasmoid/issues).
+Bugs and feature requests go to the [issue tracker](https://github.com/vit-lab/plasma-git-watcher/issues).
 Do not include keys, tokens or passphrases. Security problems should be reported privately, as described in
 [SECURITY.md](SECURITY.md). The About page of the widget also has a "Report an issue" link.
 

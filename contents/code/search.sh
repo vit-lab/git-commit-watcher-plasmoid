@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
-# Git Commit Watcher helper: searches the whole history of the watched branches of one repository
+# Plasma Git Watcher helper: searches the whole history of the watched branches of one repository
 # ("All history" next to the search field of the widget). Read-only for a local clone.
 #
-# Input (environment): GCW_REPO, GCW_BRANCHES (space-separated; empty = the upstream branch of a local
-#   clone, or the default branch of a remote URL), GCW_KEY, GCW_TOKEN_FILE,
-#   GCW_QUERY (the search text), GCW_MAX (the most commits printed, 200 by default),
-#   GCW_AUTHOR (optional: only the commits of this author, the whole name),
-#   GCW_FIELD (optional: where the words are looked for: 0 = everywhere, 1 = subject, 2 = author, 3 = hash).
+# Input (environment): PGW_REPO, PGW_BRANCHES (space-separated; empty = the upstream branch of a local
+#   clone, or the default branch of a remote URL), PGW_KEY, PGW_TOKEN_FILE,
+#   PGW_QUERY (the search text), PGW_MAX (the most commits printed, 200 by default),
+#   PGW_AUTHOR (optional: only the commits of this author, the whole name),
+#   PGW_FIELD (optional: where the words are looked for: 0 = everywhere, 1 = subject, 2 = author, 3 = hash).
 # Output: "STATUS=ok", one line per found commit (newest first), then "MORE=1" if there are more than
-#   GCW_MAX, else "MORE=0":
+#   PGW_MAX, else "MORE=0":
 #     C<US>hash<US>short<US>author<US>subject<US>relative-date<US>unix-time<US>branch
 #   or "STATUS=error" / "MSG=<text>" (and "CODE=locked" for a locked SSH key).
 #
 # A commit matches like in the list of the widget (Helpers.filterCommits): every word of the text is in
 # its subject or its author (upper and lower case are the same), or is the beginning of its hash (4 or
-# more characters; of any length when only the hash is searched). With GCW_AUTHOR the text may be empty.
+# more characters; of any length when only the hash is searched). With PGW_AUTHOR the text may be empty.
 #
 # A local clone has its history already. For a remote URL the checks keep only the last commits (see
-# check.sh), so the search has a second copy of its own, in ~/.cache/gitcommitwatcher/history/: all the
+# check.sh), so the search has a second copy of its own, in ~/.cache/plasmagitwatcher/history/: all the
 # commits of the watched branches, but no folder listings and no file contents ("tree:0"). The first
 # search downloads it (a few MB to some tens of MB for a big repository), later searches only what is new.
 
@@ -42,17 +42,17 @@ expand() {
 renice -n 10 -p $$ >/dev/null 2>&1
 command -v ionice >/dev/null 2>&1 && ionice -c 2 -n 7 -p $$ >/dev/null 2>&1
 
-REPO=$(expand "${GCW_REPO:-}")
-KEY=$(expand "${GCW_KEY:-}")
-TOKEN_FILE=$(expand "${GCW_TOKEN_FILE:-}")
-BRANCHES="${GCW_BRANCHES:-}"
-MAX="${GCW_MAX:-200}"
+REPO=$(expand "${PGW_REPO:-}")
+KEY=$(expand "${PGW_KEY:-}")
+TOKEN_FILE=$(expand "${PGW_TOKEN_FILE:-}")
+BRANCHES="${PGW_BRANCHES:-}"
+MAX="${PGW_MAX:-200}"
 case "$MAX" in
     "" | *[!0-9]*) MAX=200 ;;
 esac
 
 [ -n "$REPO" ] || fail "No repository configured."
-[ -n "$(printf '%s' "${GCW_QUERY:-}${GCW_AUTHOR:-}" | tr -d '[:space:]')" ] || fail "Nothing to search for."
+[ -n "$(printf '%s' "${PGW_QUERY:-}${PGW_AUTHOR:-}" | tr -d '[:space:]')" ] || fail "Nothing to search for."
 command -v git >/dev/null 2>&1 || fail "git is not installed."
 
 TO=()
@@ -85,7 +85,7 @@ else
     # --- Remote URL: the history copy of this URL ---
     # shellcheck source=auth.sh
     . "$(dirname "$0")/auth.sh"
-    DIR="${XDG_CACHE_HOME:-$HOME/.cache}/gitcommitwatcher/history/$(printf '%s' "$REPO" | sha1sum | cut -c1-12)"
+    DIR="${XDG_CACHE_HOME:-$HOME/.cache}/plasmagitwatcher/history/$(printf '%s' "$REPO" | sha1sum | cut -c1-12)"
     mkdir -p "$DIR" || fail "Cannot create the folder $DIR"
     if [ ! -f "$DIR/HEAD" ]; then
         git init --bare --quiet "$DIR" || fail "Cannot create the history copy $DIR"
@@ -99,10 +99,10 @@ else
             && git -C "$DIR" config remote.origin.partialclonefilter tree:0 \
             || fail "Cannot set up the history copy $DIR"
     fi
-    touch "$DIR/gcw-used" 2>/dev/null
+    touch "$DIR/pgw-used" 2>/dev/null
 
     # Which of the wanted branches the remote has, and which of them are not up to date here.
-    PREFIX="refs/gcw/tips/"
+    PREFIX="refs/pgw/tips/"
     SPECS=()
     if [ -n "$BRANCHES" ]; then
         HEADS=$("${TO[@]}" git ls-remote --heads "$REPO" 2>&1) || fail "git ls-remote failed: $HEADS"
@@ -110,15 +110,15 @@ else
             git check-ref-format "refs/heads/$b" 2>/dev/null || continue
             tip=$(printf '%s\n' "$HEADS" | awk -v ref="refs/heads/$b" '$2 == ref { print $1; exit }')
             [ -n "$tip" ] || continue
-            REFS+=("refs/gcw/tips/$b")
-            have=$(git -C "$DIR" rev-parse --verify --quiet "refs/gcw/tips/$b^{commit}")
-            [ "$tip" = "$have" ] || SPECS+=("+refs/heads/$b:refs/gcw/tips/$b")
+            REFS+=("refs/pgw/tips/$b")
+            have=$(git -C "$DIR" rev-parse --verify --quiet "refs/pgw/tips/$b^{commit}")
+            [ "$tip" = "$have" ] || SPECS+=("+refs/heads/$b:refs/pgw/tips/$b")
         done
         [ "${#REFS[@]}" -gt 0 ] || fail "None of the watched branches was found in the repository."
     else
         PREFIX=""
-        REFS=("refs/gcw/head")
-        SPECS=("+HEAD:refs/gcw/head")
+        REFS=("refs/pgw/head")
+        SPECS=("+HEAD:refs/pgw/head")
     fi
     if [ "${#SPECS[@]}" -gt 0 ]; then
         fetch_history() {
@@ -127,7 +127,7 @@ else
         # Two searches of the same repository take turns.
         if command -v flock >/dev/null 2>&1; then
             OUT=$( ( flock -w 660 9 || { printf 'Timed out waiting for another search of this repository.'; exit 1; }
-                     fetch_history ) 9>"$DIR/gcw-search.lock" ) \
+                     fetch_history ) 9>"$DIR/pgw-search.lock" ) \
                 || fail "Downloading the history failed: $(printf '%s' "$OUT" | tail -n 3)"
         else
             OUT=$(fetch_history) || fail "Downloading the history failed: $(printf '%s' "$OUT" | tail -n 3)"
@@ -137,15 +137,15 @@ fi
 set +f
 
 printf 'STATUS=ok\n'
-export GCW_QUERY GCW_AUTHOR GCW_FIELD
+export PGW_QUERY PGW_AUTHOR PGW_FIELD
 "${TO[@]}" git -C "$DIR" log --no-color --source \
     --format="C${US}%H${US}%h${US}%an${US}%s${US}%cr${US}%ct${US}%S" "${REFS[@]}" -- 2>/dev/null \
     | awk -F"$US" -v OFS="$US" -v max="$MAX" -v prefix="$PREFIX" '
         BEGIN {
-            author = tolower(ENVIRON["GCW_AUTHOR"])
-            field = ENVIRON["GCW_FIELD"] + 0
+            author = tolower(ENVIRON["PGW_AUTHOR"])
+            field = ENVIRON["PGW_FIELD"] + 0
             use_hash = (field == 0 || field == 3)
-            n = split(tolower(ENVIRON["GCW_QUERY"]), raw, /[ \t\r\n]+/)
+            n = split(tolower(ENVIRON["PGW_QUERY"]), raw, /[ \t\r\n]+/)
             nw = 0
             for (i = 1; i <= n; ++i) {
                 if (raw[i] != "") {

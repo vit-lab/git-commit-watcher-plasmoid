@@ -4,7 +4,7 @@ Thank you for your interest! This is a small hobby project, so keep things simpl
 
 ## Reporting bugs and ideas
 
-Open an [issue](https://github.com/vit-lab/git-commit-watcher-plasmoid/issues) and fill in the template.
+Open an [issue](https://github.com/vit-lab/plasma-git-watcher/issues) and fill in the template.
 **Never paste private keys, passphrases or tokens** (or logs that contain them).
 Security problems: see [SECURITY.md](SECURITY.md) and do not use public issues.
 
@@ -16,9 +16,9 @@ Security problems: see [SECURITY.md](SECURITY.md) and do not use public issues.
   - `bash -n contents/code/*.sh`
   - `qmllint contents/ui/*.qml` (from Qt; warnings about unresolved KDE modules are expected when the KDE
     QML modules are not installed)
-  - `./scripts/package.sh` builds `dist/git-commit-watcher-<version>.plasmoid`; to try it, remove the installed
+  - `./scripts/package.sh` builds `dist/plasma-git-watcher-<version>.plasmoid`; to try it, remove the installed
     version (`kpackagetool6 -t Plasma/Applet -r local.gitcommitwatcher`), install the new file
-    (`kpackagetool6 -t Plasma/Applet -i dist/git-commit-watcher-*.plasmoid`) and restart the shell
+    (`kpackagetool6 -t Plasma/Applet -i dist/plasma-git-watcher-*.plasmoid`) and restart the shell
     (`systemctl --user restart plasma-plasmashell.service`)
 - The widget must stay **read-only** for repositories: no commits, pushes or working-tree changes.
 - Add a line to the *Unreleased* section of [CHANGELOG.md](CHANGELOG.md).

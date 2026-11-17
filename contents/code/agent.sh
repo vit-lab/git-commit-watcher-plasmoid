@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Git Commit Watcher: manages a private ssh-agent that holds a passphrase-protected key.
+# Plasma Git Watcher: manages a private ssh-agent that holds a passphrase-protected key.
 #
 # Usage: agent.sh status|unlock|lock
-# Input (environment): GCW_KEY, GCW_LIFETIME (seconds; 0 = until logout)
+# Input (environment): PGW_KEY, PGW_LIFETIME (seconds; 0 = until logout)
 # Output: STATUS=ok|error, KEY=none|missing|plain|locked|unlocked, AGENT=<socket>, OWN=1|0, MSG=<text>
 #   plain    = key has no passphrase, nothing to unlock
 #   locked   = key is encrypted and not loaded in any usable agent
@@ -10,7 +10,7 @@
 
 DIR=$(cd "$(dirname "$0")" && pwd)
 RUN="${XDG_RUNTIME_DIR:-/tmp}"
-SOCK="$RUN/gcw-agent-$(id -u).sock"
+SOCK="$RUN/pgw-agent-$(id -u).sock"
 ORIG_SOCK="${SSH_AUTH_SOCK:-}"
 
 expand() {
@@ -20,7 +20,7 @@ expand() {
         *) printf '%s' "$1" ;;
     esac
 }
-KEY=$(expand "${GCW_KEY:-}")
+KEY=$(expand "${PGW_KEY:-}")
 
 fail() {
     local msg
@@ -101,11 +101,11 @@ do_unlock() {
     start_agent || fail "Could not start ssh-agent."
 
     # ssh-add needs an executable askpass program; create a tiny launcher.
-    wrap="$RUN/gcw-askpass-$(id -u).sh"
+    wrap="$RUN/pgw-askpass-$(id -u).sh"
     printf "#!/bin/sh\nexec bash '%s' \"\$@\"\n" "$DIR/askpass.sh" > "$wrap" && chmod 700 "$wrap"
 
-    if [ "${GCW_LIFETIME:-0}" -gt 0 ] 2>/dev/null; then
-        args=(-t "$GCW_LIFETIME")
+    if [ "${PGW_LIFETIME:-0}" -gt 0 ] 2>/dev/null; then
+        args=(-t "$PGW_LIFETIME")
     fi
     out=$(SSH_AUTH_SOCK="$SOCK" SSH_ASKPASS="$wrap" SSH_ASKPASS_REQUIRE=force \
           ssh-add "${args[@]}" "$KEY" </dev/null 2>&1) \
