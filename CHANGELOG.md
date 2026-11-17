@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- A small blinking green dot on the panel icon while a check runs: bottom right, or, when there are unread
+  commits, top right in place of the orange dot (the unread badge stays). With Plasma's animations turned off
+  it stays lit instead of blinking.
+
 ### Changed
 
 - The project is renamed from "Git Commit Watcher" to **Plasma Git Watcher**: the name in the widget list,
