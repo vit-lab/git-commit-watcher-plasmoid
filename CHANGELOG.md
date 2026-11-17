@@ -11,6 +11,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The branch rows of the popup can be folded: with two or more of them, a "Branches" line above them folds
   them into itself and unfolds them again (remembered). Folded, it says how many repositories it holds and
   whether some branches are chosen ("all branches", "a choice of branches in 1 repository").
+- The Branches panel (the fold line and the branch rows above the commit list) has a text size of its own:
+  Ctrl + mouse wheel over it makes its text and icons bigger or smaller, apart from the commit list and the diff
+  view (remembered). When it is not 100 %, a button in the fold line shows it and resets it.
+- The branch rows are aligned: the repository names are one column as wide as the longest name (up to 45 % of
+  the panel width), so the "Branches" buttons and the chosen branches start at the same place in every row.
+  The rows start where the text of the commits starts.
+- The Branches panel has a light tint of the text color (lighter on a dark theme, darker on a light one), so it
+  is clear where it ends and the commit list starts.
 
 ## [1.6.1] - 2026-11-17
 

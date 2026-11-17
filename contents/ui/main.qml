@@ -300,6 +300,12 @@ PlasmoidItem {
     // take a lot of room.
     readonly property bool branchRowsFoldable: branchGroups.length > 1
     readonly property bool branchRowsFolded: branchRowsFoldable && cfg.branchRowsFolded
+    // Text and icon size of the Branches panel (Ctrl + mouse wheel over it, see wheelScale).
+    readonly property real branchPt: fontPt(Kirigami.Theme.defaultFont) * cfg.branchTextScale / 100
+    readonly property int branchIconSize: Math.round(Kirigami.Units.iconSizes.small * cfg.branchTextScale / 100)
+    // Where the text of a commit row starts: its margin, the unread dot and the spacing after it (see the
+    // delegate of commitList). The branch rows start there too, so the two parts of the popup line up.
+    readonly property int listTextIndent: Kirigami.Units.smallSpacing * 4
     // Shown next to the folded line, so that a choice of branches is not hidden by surprise.
     readonly property string branchFoldSummary: {
         root.rev;
@@ -373,28 +379,25 @@ PlasmoidItem {
     property real wheelAcc: 0
 
     // One mouse-wheel notch (120) changes the size by 10 %; touchpad deltas are added up.
-    function wheelScale(isDiff, angleY) {
+    // The text sizes (in %) changed with Ctrl + mouse wheel: kind is "list" (the commit list), "diff" (the
+    // diff view) or "branch" (the Branches panel above the list).
+    function scaleKey(kind) {
+        return kind === "diff" ? "diffTextScale" : kind === "branch" ? "branchTextScale" : "listTextScale";
+    }
+
+    function wheelScale(kind, angleY) {
         wheelAcc += angleY;
         var steps = Math.trunc(wheelAcc / 120);
         if (steps === 0) {
             return;
         }
         wheelAcc -= steps * 120;
-        var cur = isDiff ? cfg.diffTextScale : cfg.listTextScale;
-        var next = Math.max(50, Math.min(300, cur + steps * 10));
-        if (isDiff) {
-            cfg.diffTextScale = next;
-        } else {
-            cfg.listTextScale = next;
-        }
+        var key = scaleKey(kind);
+        cfg[key] = Math.max(50, Math.min(300, cfg[key] + steps * 10));
     }
 
-    function resetScale(isDiff) {
-        if (isDiff) {
-            cfg.diffTextScale = 100;
-        } else {
-            cfg.listTextScale = 100;
-        }
+    function resetScale(kind) {
+        cfg[scaleKey(kind)] = 100;
     }
     readonly property var rowColors: ({
         hash: Kirigami.Theme.neutralTextColor.toString(),
@@ -1816,7 +1819,7 @@ PlasmoidItem {
         property bool removable: false        // shows a cross: a click takes the chip away
         signal clicked()
 
-        readonly property real textPt: root.fontPt(Kirigami.Theme.defaultFont) * cfg.listTextScale / 100
+        readonly property real textPt: root.fontPt(Kirigami.Theme.defaultFont) * cfg.branchTextScale / 100
         readonly property real glyph: Math.round(chipText.implicitHeight * 0.9)
 
         implicitHeight: Math.round(chipText.implicitHeight + Kirigami.Units.smallSpacing * 2)
@@ -2586,215 +2589,269 @@ PlasmoidItem {
                 }
             }
 
-            // With several branch rows, a line that folds them into itself and unfolds them again (remembered).
-            // Folded, it says whether some branches are chosen.
-            RowLayout {
+            // The Branches panel (the fold line and the branch rows) has a text size of its own: Ctrl + mouse
+            // wheel over it changes it, apart from the commit list and the diff view.
+            Item {
                 Layout.fillWidth: true
-                Layout.leftMargin: Kirigami.Units.smallSpacing
-                Layout.rightMargin: Kirigami.Units.smallSpacing
-                Layout.topMargin: Kirigami.Units.smallSpacing
-                visible: root.branchRowsFoldable
-                spacing: Kirigami.Units.smallSpacing
+                visible: root.showBranchBar
+                implicitHeight: branchPane.implicitHeight + Kirigami.Units.smallSpacing
 
-                PlasmaComponents.ToolButton {
-                    icon.name: root.branchRowsFolded ? "arrow-right" : "arrow-down"
-                    text: root.branchRowsFolded
-                          ? i18np("Branches of %1 repository", "Branches of %1 repositories", root.branchGroups.length)
-                          : i18n("Branches")
-                    onClicked: root.cfg.branchRowsFolded = !root.cfg.branchRowsFolded
-                    PlasmaComponents.ToolTip.text: root.branchRowsFolded ? i18n("Show the branch rows") : i18n("Hide the branch rows")
-                    PlasmaComponents.ToolTip.visible: hovered
+                // A light tint of the text color (lighter on a dark theme, darker on a light one), so that it is
+                // clear where the panel ends and the commit list starts.
+                Rectangle {
+                    anchors.fill: parent
+                    color: Qt.alpha(Kirigami.Theme.textColor, 0.05)
                 }
-                PlasmaComponents.Label {
-                    Layout.fillWidth: true
-                    visible: root.branchRowsFolded
-                    elide: Text.ElideRight
-                    opacity: 0.7
-                    text: "· " + root.branchFoldSummary
-                }
-            }
 
-            // A row for every shown repository that is watched on several branches: a "Branches" button that
-            // opens the list of its branches (with check boxes and a search field), and the chosen branches in
-            // one line next to it (a click on one takes it away). With no branch chosen, all are shown.
-            Repeater {
-                model: root.branchGroups
-                delegate: RowLayout {
-                    id: branchRow
-                    required property var modelData
-                    visible: !root.branchRowsFolded
-                    readonly property var groupData: modelData
-                    // The ids of the branches that are shown, and the branches to put in the line.
-                    readonly property var shownIds: { root.rev; root.selBranches; return root.shownUnits(groupData.id).map(function(u) { return u.id; }); }
-                    readonly property bool allShown: shownIds.length === groupData.branches.length
-                    readonly property var chosen: allShown ? [] : groupData.branches.filter(function(b) { return shownIds.indexOf(b.id) >= 0; })
-                    readonly property var shownInList: {
-                        var f = branchFilter.text.trim().toLowerCase();
-                        return f === "" ? groupData.branches
-                                        : groupData.branches.filter(function(b) { return b.text.toLowerCase().indexOf(f) >= 0; });
-                    }
-                    Layout.fillWidth: true
-                    Layout.leftMargin: Kirigami.Units.smallSpacing
-                    Layout.rightMargin: Kirigami.Units.smallSpacing
-                    Layout.topMargin: Kirigami.Units.smallSpacing
-                    spacing: Kirigami.Units.smallSpacing
-
-                    // The name of the repository, whenever the list shows more than one repository, so that
-                    // it is clear whose branches these are.
-                    readonly property bool named: root.viewRepoCount > 1 || root.branchGroups.length > 1
-                    PlasmaComponents.Label {
-                        visible: branchRow.named
-                        Layout.maximumWidth: Kirigami.Units.gridUnit * 10
-                        elide: Text.ElideRight
-                        font.bold: true
-                        font.pointSize: root.fontPt(Kirigami.Theme.defaultFont) * cfg.listTextScale / 100
-                        color: branchRow.groupData.color || Kirigami.Theme.textColor
-                        text: branchRow.groupData.name
-                    }
-
-                    PlasmaComponents.ToolButton {
-                        id: branchButton
-                        icon.name: "vcs-branch"
-                        text: i18n("Branches")
-                        down: branchPopup.visible
-                        onClicked: branchPopup.visible ? branchPopup.close() : branchPopup.open()
-                        PlasmaComponents.ToolTip.text: i18np("Choose the branches of %2 to show (%1 branch)", "Choose the branches of %2 to show (%1 branches)", branchRow.groupData.branches.length, branchRow.groupData.name)
-                        PlasmaComponents.ToolTip.visible: hovered && !branchPopup.visible
-                        PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
-
-                        ListPopup {
-                            id: branchPopup
-                            y: branchButton.height
-                            width: Math.min(Kirigami.Units.gridUnit * 18, full.width - Kirigami.Units.gridUnit)
-                            maxHeight: Math.max(Kirigami.Units.gridUnit * 8, full.height * 0.7)
-                            onOpened: {
-                                if (branchFilter.visible) {
-                                    branchFilter.forceActiveFocus();
-                                }
+                ColumnLayout {
+                    id: branchPane
+                    width: parent.width
+                    spacing: 0
+                    // The repository names are one column, as wide as the longest of them (up to a limit), so
+                    // that the "Branches" buttons and the chosen branches start at the same place in every row.
+                    readonly property real nameWidth: {
+                        var w = 0;
+                        for (var i = 0; i < branchRepeater.count; ++i) {
+                            var row = branchRepeater.itemAt(i);
+                            if (row) {
+                                w = Math.max(w, row.nameTextWidth);
                             }
-                            onClosed: branchFilter.text = ""
+                        }
+                        return Math.ceil(Math.min(w, Math.max(Kirigami.Units.gridUnit * 8 * cfg.branchTextScale / 100, width * 0.45)));
+                    }
 
-                            contentItem: ColumnLayout {
-                                spacing: Kirigami.Units.smallSpacing
+                    // With several branch rows, a line that folds them into itself and unfolds them again (remembered).
+                    // Folded, it says whether some branches are chosen.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Math.max(0, root.listTextIndent - foldButton.leftPadding)
+                        Layout.rightMargin: Kirigami.Units.smallSpacing
+                        Layout.topMargin: Kirigami.Units.smallSpacing
+                        visible: root.branchRowsFoldable
+                        spacing: Kirigami.Units.smallSpacing
 
-                                Kirigami.SearchField {
-                                    id: branchFilter
-                                    visible: branchRow.groupData.branches.length > 8
-                                    Layout.fillWidth: true
-                                }
+                        PlasmaComponents.ToolButton {
+                            id: foldButton
+                            icon.name: root.branchRowsFolded ? "arrow-right" : "arrow-down"
+                            icon.width: root.branchIconSize
+                            icon.height: root.branchIconSize
+                            font.pointSize: root.branchPt
+                            text: root.branchRowsFolded
+                                  ? i18np("Branches of %1 repository", "Branches of %1 repositories", root.branchGroups.length)
+                                  : i18n("Branches")
+                            onClicked: root.cfg.branchRowsFolded = !root.cfg.branchRowsFolded
+                            PlasmaComponents.ToolTip.text: root.branchRowsFolded ? i18n("Show the branch rows") : i18n("Hide the branch rows")
+                            PlasmaComponents.ToolTip.visible: hovered
+                        }
+                        PlasmaComponents.Label {
+                            Layout.fillWidth: true
+                            visible: root.branchRowsFolded
+                            elide: Text.ElideRight
+                            opacity: 0.7
+                            font.pointSize: root.branchPt
+                            text: "· " + root.branchFoldSummary
+                        }
+                        Item {
+                            Layout.fillWidth: true
+                            visible: !root.branchRowsFolded
+                        }
+                        PlasmaComponents.ToolButton {
+                            // The text size of the panel (when it is not 100 %); a click resets it.
+                            visible: cfg.branchTextScale !== 100
+                            icon.name: "zoom-original"
+                            text: cfg.branchTextScale + " %"
+                            onClicked: root.resetScale("branch")
+                            PlasmaComponents.ToolTip.text: i18n("Reset the text size of the branch rows to 100 %")
+                            PlasmaComponents.ToolTip.visible: hovered
+                        }
+                    }
 
-                                Flickable {
-                                    id: branchFlick
-                                    Layout.fillWidth: true
-                                    Layout.fillHeight: true
-                                    implicitHeight: branchRows.implicitHeight
-                                    contentHeight: branchRows.implicitHeight
-                                    clip: true
-                                    boundsBehavior: Flickable.StopAtBounds
-                                    T.ScrollBar.vertical: PlasmaComponents.ScrollBar {}
+                    // A row for every shown repository that is watched on several branches: a "Branches" button that
+                    // opens the list of its branches (with check boxes and a search field), and the chosen branches in
+                    // one line next to it (a click on one takes it away). With no branch chosen, all are shown.
+                    Repeater {
+                        id: branchRepeater
+                        model: root.branchGroups
+                        delegate: RowLayout {
+                            id: branchRow
+                            required property var modelData
+                            visible: !root.branchRowsFolded
+                            readonly property var groupData: modelData
+                            // The ids of the branches that are shown, and the branches to put in the line.
+                            readonly property var shownIds: { root.rev; root.selBranches; return root.shownUnits(groupData.id).map(function(u) { return u.id; }); }
+                            readonly property bool allShown: shownIds.length === groupData.branches.length
+                            readonly property var chosen: allShown ? [] : groupData.branches.filter(function(b) { return shownIds.indexOf(b.id) >= 0; })
+                            readonly property var shownInList: {
+                                var f = branchFilter.text.trim().toLowerCase();
+                                return f === "" ? groupData.branches
+                                                : groupData.branches.filter(function(b) { return b.text.toLowerCase().indexOf(f) >= 0; });
+                            }
+                            Layout.fillWidth: true
+                            Layout.leftMargin: root.listTextIndent
+                            Layout.rightMargin: Kirigami.Units.smallSpacing
+                            Layout.topMargin: Kirigami.Units.smallSpacing
+                            spacing: Kirigami.Units.smallSpacing
 
-                                    ColumnLayout {
-                                        id: branchRows
-                                        width: branchFlick.width
-                                        spacing: 0
+                            // The name of the repository, whenever the list shows more than one repository, so that
+                            // it is clear whose branches these are.
+                            readonly property bool named: root.viewRepoCount > 1 || root.branchGroups.length > 1
+                            readonly property real nameTextWidth: named ? nameLabel.implicitWidth : 0
+                            PlasmaComponents.Label {
+                                id: nameLabel
+                                visible: branchRow.named
+                                Layout.preferredWidth: branchPane.nameWidth
+                                Layout.maximumWidth: branchPane.nameWidth
+                                elide: Text.ElideRight
+                                font.bold: true
+                                font.pointSize: root.branchPt
+                                color: branchRow.groupData.color || Kirigami.Theme.textColor
+                                text: branchRow.groupData.name
+                            }
 
-                                        CheckRow {
-                                            Layout.fillWidth: true
-                                            visible: branchFilter.text.trim() === ""
-                                            label: branchRow.named ? i18n("All branches of %1", branchRow.groupData.name) : i18n("All branches")
-                                            count: { root.rev; return root.sumUnread(branchRow.groupData.id); }
-                                            checked: branchRow.allShown
-                                            partial: !branchRow.allShown && branchRow.shownIds.length > 0
-                                            onActivated: root.toggleBranch(branchRow.groupData.id, "")
+                            PlasmaComponents.ToolButton {
+                                id: branchButton
+                                icon.name: "vcs-branch"
+                                icon.width: root.branchIconSize
+                                icon.height: root.branchIconSize
+                                font.pointSize: root.branchPt
+                                text: i18n("Branches")
+                                down: branchPopup.visible
+                                onClicked: branchPopup.visible ? branchPopup.close() : branchPopup.open()
+                                PlasmaComponents.ToolTip.text: i18np("Choose the branches of %2 to show (%1 branch)", "Choose the branches of %2 to show (%1 branches)", branchRow.groupData.branches.length, branchRow.groupData.name)
+                                PlasmaComponents.ToolTip.visible: hovered && !branchPopup.visible
+                                PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
+
+                                ListPopup {
+                                    id: branchPopup
+                                    y: branchButton.height
+                                    width: Math.min(Kirigami.Units.gridUnit * 18, full.width - Kirigami.Units.gridUnit)
+                                    maxHeight: Math.max(Kirigami.Units.gridUnit * 8, full.height * 0.7)
+                                    onOpened: {
+                                        if (branchFilter.visible) {
+                                            branchFilter.forceActiveFocus();
                                         }
-                                        Kirigami.Separator {
-                                            visible: branchFilter.text.trim() === ""
+                                    }
+                                    onClosed: branchFilter.text = ""
+
+                                    contentItem: ColumnLayout {
+                                        spacing: Kirigami.Units.smallSpacing
+
+                                        Kirigami.SearchField {
+                                            id: branchFilter
+                                            visible: branchRow.groupData.branches.length > 8
                                             Layout.fillWidth: true
-                                            Layout.topMargin: Kirigami.Units.smallSpacing
-                                            Layout.bottomMargin: Kirigami.Units.smallSpacing
                                         }
-                                        Repeater {
-                                            model: branchRow.shownInList
-                                            delegate: CheckRow {
-                                                required property var modelData
-                                                Layout.fillWidth: true
-                                                label: modelData.text
-                                                iconName: "vcs-branch"
-                                                count: { root.rev; return root.st(modelData.id).unread; }
-                                                checked: branchRow.shownIds.indexOf(modelData.id) >= 0
-                                                onActivated: root.toggleBranch(branchRow.groupData.id, modelData.id)
+
+                                        Flickable {
+                                            id: branchFlick
+                                            Layout.fillWidth: true
+                                            Layout.fillHeight: true
+                                            implicitHeight: branchRows.implicitHeight
+                                            contentHeight: branchRows.implicitHeight
+                                            clip: true
+                                            boundsBehavior: Flickable.StopAtBounds
+                                            T.ScrollBar.vertical: PlasmaComponents.ScrollBar {}
+
+                                            ColumnLayout {
+                                                id: branchRows
+                                                width: branchFlick.width
+                                                spacing: 0
+
+                                                CheckRow {
+                                                    Layout.fillWidth: true
+                                                    visible: branchFilter.text.trim() === ""
+                                                    label: branchRow.named ? i18n("All branches of %1", branchRow.groupData.name) : i18n("All branches")
+                                                    count: { root.rev; return root.sumUnread(branchRow.groupData.id); }
+                                                    checked: branchRow.allShown
+                                                    partial: !branchRow.allShown && branchRow.shownIds.length > 0
+                                                    onActivated: root.toggleBranch(branchRow.groupData.id, "")
+                                                }
+                                                Kirigami.Separator {
+                                                    visible: branchFilter.text.trim() === ""
+                                                    Layout.fillWidth: true
+                                                    Layout.topMargin: Kirigami.Units.smallSpacing
+                                                    Layout.bottomMargin: Kirigami.Units.smallSpacing
+                                                }
+                                                Repeater {
+                                                    model: branchRow.shownInList
+                                                    delegate: CheckRow {
+                                                        required property var modelData
+                                                        Layout.fillWidth: true
+                                                        label: modelData.text
+                                                        iconName: "vcs-branch"
+                                                        count: { root.rev; return root.st(modelData.id).unread; }
+                                                        checked: branchRow.shownIds.indexOf(modelData.id) >= 0
+                                                        onActivated: root.toggleBranch(branchRow.groupData.id, modelData.id)
+                                                    }
+                                                }
+                                                PlasmaComponents.Label {
+                                                    visible: branchRow.shownInList.length === 0
+                                                    Layout.fillWidth: true
+                                                    Layout.margins: Kirigami.Units.smallSpacing
+                                                    opacity: 0.7
+                                                    text: i18n("No branch matches.")
+                                                }
                                             }
                                         }
-                                        PlasmaComponents.Label {
-                                            visible: branchRow.shownInList.length === 0
-                                            Layout.fillWidth: true
-                                            Layout.margins: Kirigami.Units.smallSpacing
-                                            opacity: 0.7
-                                            text: i18n("No branch matches.")
+                                    }
+                                }
+                            }
+
+                            // The chosen branches, in one line; it scrolls sideways when they do not fit.
+                            Flickable {
+                                id: chosenView
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: chosenRow.implicitHeight
+                                contentWidth: chosenRow.implicitWidth
+                                contentHeight: chosenRow.implicitHeight
+                                flickableDirection: Flickable.HorizontalFlick
+                                boundsBehavior: Flickable.StopAtBounds
+                                clip: true
+
+                                // A plain mouse wheel scrolls the line sideways.
+                                WheelHandler {
+                                    acceptedDevices: PointerDevice.Mouse
+                                    onWheel: event => {
+                                        var max = Math.max(0, chosenView.contentWidth - chosenView.width);
+                                        chosenView.contentX = Math.max(0, Math.min(max, chosenView.contentX - event.angleDelta.y));
+                                    }
+                                }
+
+                                Row {
+                                    id: chosenRow
+                                    spacing: Kirigami.Units.smallSpacing
+
+                                    FilterChip {
+                                        visible: branchRow.allShown
+                                        label: i18n("All branches")
+                                        count: { root.rev; return root.sumUnread(branchRow.groupData.id); }
+                                        selected: true
+                                        onClicked: branchPopup.open()
+                                    }
+                                    FilterChip {
+                                        visible: branchRow.shownIds.length === 0
+                                        label: i18n("No branch chosen")
+                                        onClicked: branchPopup.open()
+                                    }
+                                    Repeater {
+                                        model: branchRow.chosen
+                                        delegate: FilterChip {
+                                            required property var modelData
+                                            label: modelData.text
+                                            iconName: "vcs-branch"
+                                            count: { root.rev; return root.st(modelData.id).unread; }
+                                            selected: true
+                                            removable: true
+                                            onClicked: root.toggleBranch(branchRow.groupData.id, modelData.id)
                                         }
                                     }
                                 }
                             }
                         }
                     }
-
-                    // The chosen branches, in one line; it scrolls sideways when they do not fit.
-                    Flickable {
-                        id: chosenView
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: chosenRow.implicitHeight
-                        contentWidth: chosenRow.implicitWidth
-                        contentHeight: chosenRow.implicitHeight
-                        flickableDirection: Flickable.HorizontalFlick
-                        boundsBehavior: Flickable.StopAtBounds
-                        clip: true
-
-                        // A plain mouse wheel scrolls the line sideways.
-                        WheelHandler {
-                            acceptedDevices: PointerDevice.Mouse
-                            onWheel: event => {
-                                var max = Math.max(0, chosenView.contentWidth - chosenView.width);
-                                chosenView.contentX = Math.max(0, Math.min(max, chosenView.contentX - event.angleDelta.y));
-                            }
-                        }
-
-                        Row {
-                            id: chosenRow
-                            spacing: Kirigami.Units.smallSpacing
-
-                            FilterChip {
-                                visible: branchRow.allShown
-                                label: i18n("All branches")
-                                count: { root.rev; return root.sumUnread(branchRow.groupData.id); }
-                                selected: true
-                                onClicked: branchPopup.open()
-                            }
-                            FilterChip {
-                                visible: branchRow.shownIds.length === 0
-                                label: i18n("No branch chosen")
-                                onClicked: branchPopup.open()
-                            }
-                            Repeater {
-                                model: branchRow.chosen
-                                delegate: FilterChip {
-                                    required property var modelData
-                                    label: modelData.text
-                                    iconName: "vcs-branch"
-                                    count: { root.rev; return root.st(modelData.id).unread; }
-                                    selected: true
-                                    removable: true
-                                    onClicked: root.toggleBranch(branchRow.groupData.id, modelData.id)
-                                }
-                            }
-                        }
-                    }
                 }
-            }
 
-            Item {
-                // a little space between the chips and the list
-                visible: root.showBranchBar
-                implicitHeight: Kirigami.Units.smallSpacing
+                WheelZoom { onZoom: angleY => root.wheelScale("branch", angleY) }
             }
 
             Repeater {
@@ -2831,7 +2888,7 @@ PlasmoidItem {
             // first commit does not seem to belong to the rows above it.
             Kirigami.Separator {
                 Layout.fillWidth: true
-                Layout.topMargin: Kirigami.Units.smallSpacing
+                Layout.topMargin: root.problems.length > 0 ? Kirigami.Units.smallSpacing : 0
                 visible: root.showBranchBar || root.problems.length > 0
             }
 
@@ -3025,7 +3082,7 @@ PlasmoidItem {
                     }
                 }
 
-                WheelZoom { onZoom: angleY => root.wheelScale(false, angleY) }
+                WheelZoom { onZoom: angleY => root.wheelScale("list", angleY) }
             }
 
             Item {
@@ -3242,7 +3299,7 @@ PlasmoidItem {
                     }
                 }
 
-                WheelZoom { onZoom: angleY => root.wheelScale(true, angleY) }
+                WheelZoom { onZoom: angleY => root.wheelScale("diff", angleY) }
             }
 
             PlasmaComponents.Label {
@@ -3315,7 +3372,7 @@ PlasmoidItem {
                     visible: textScale !== 100
                     icon.name: "zoom-original"
                     text: textScale + " %"
-                    onClicked: root.resetScale(root.diffCommit !== null)
+                    onClicked: root.resetScale(root.diffCommit !== null ? "diff" : "list")
                     PlasmaComponents.ToolTip.text: i18n("Reset the text size to 100 %")
                     PlasmaComponents.ToolTip.visible: hovered
                 }

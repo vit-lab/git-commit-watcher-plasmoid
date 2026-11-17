@@ -45,7 +45,8 @@ The context menu of the widget:
   "Performance" settings page (commits shown at first, commits per branch, branches for ALL).
 - Download progress (step, size, speed, time left) while a check runs, a stop button for a check that hangs,
   and a small blinking green dot on the panel icon while a check runs.
-- Text size of the commit list and of the diff view can be changed with Ctrl + mouse wheel (remembered).
+- Text size of the commit list, of the branch rows above it and of the diff view can each be changed with
+  Ctrl + mouse wheel over them (remembered).
 - Notifications as a single summary, one per commit, or only for the latest commit. Urgency, timeout, icon and
   sound are configurable, and the author and short hash can be shown or hidden. The sound can be a system
   sound or your own file, with a preview button.
