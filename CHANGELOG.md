@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.6] - 2026-11-17
+
 ### Added
 
 - A small blinking green dot on the panel icon while a check runs: bottom right, or, when there are unread
@@ -237,7 +239,8 @@ First public release.
   Local File…*), and `scripts/package.sh` to build it from the source.
 - Documentation: `README.md`, `SECURITY.md`, this changelog and issue templates.
 
-[Unreleased]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.5...HEAD
+[Unreleased]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.6...HEAD
+[1.6]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.5...v1.6
 [1.5]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.4...v1.5
 [1.4]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.3...v1.4
 [1.3]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.2...v1.3
