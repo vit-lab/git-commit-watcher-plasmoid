@@ -436,11 +436,12 @@ PlasmoidItem {
 
     // The panel icon: "muted" while notifications are muted (the unread badge is still shown),
     // otherwise "new" or "idle".
-    // While a check runs, the panel shows the plain icon: the blinking green dot takes the place of the
-    // orange dot of the "new" icon (the unread badge still shows the count).
     readonly property string panelIcon: cfg.muted ? resolveIcon(cfg.iconMuted, "muted", lightText)
-                                       : totalUnread > 0 && !anyChecking ? resolveIcon(cfg.iconNew, "new", lightText)
-                                                                         : resolveIcon(cfg.iconIdle, "idle", lightText)
+                                       : totalUnread > 0 ? resolveIcon(cfg.iconNew, "new", lightText)
+                                                         : resolveIcon(cfg.iconIdle, "idle", lightText)
+    // One of the bundled icons (not one chosen in the settings): they all have the branch symbol, whose
+    // bottom circle is empty (see the dot shown while a check runs).
+    readonly property bool panelIconBundled: ["idle", "new", "muted"].some(function(k) { return panelIcon === bundledIcon(k, lightText); })
 
     Plasmoid.icon: panelIcon
     Plasmoid.status: (cfg.hideWhenRead && totalUnread === 0)
@@ -2081,19 +2082,24 @@ PlasmoidItem {
                 }
             }
 
-            // A small blinking green dot while a check runs: bottom right, or top right (where the orange dot
-            // of the "new" icon is, see panelIcon) when the unread badge is there. It blinks only when
-            // Plasma's animations are on, otherwise it stays lit.
+            // A small blinking green dot while a check runs. With a bundled icon it sits inside the empty
+            // bottom circle of the branch symbol (center 6,17 of the 22 x 22 drawing), where no badge or
+            // dot of any icon state is: the corners hold the orange dot of "new", the red badge of "muted"
+            // and the unread badge. With an icon chosen in the settings it sits in a corner: bottom right,
+            // or top right when the unread badge is there. It blinks only when Plasma's animations are on,
+            // otherwise it stays lit.
             Rectangle {
                 id: checkingDot
                 visible: root.anyChecking
-                width: Math.max(5, Math.round(iconBox.width * 0.28))
+                readonly property bool inCircle: root.panelIconBundled
+                width: inCircle ? Math.max(3, iconBox.width * 3.4 / 22) : Math.max(5, Math.round(iconBox.width * 0.28))
                 height: width
                 radius: width / 2
-                x: iconBox.width - width
-                y: badge.visible ? 0 : iconBox.height - height
+                antialiasing: true
+                x: inCircle ? iconBox.width * 6 / 22 - width / 2 : iconBox.width - width
+                y: inCircle ? iconBox.height * 17 / 22 - height / 2 : (badge.visible ? 0 : iconBox.height - height)
                 color: Kirigami.Theme.positiveTextColor
-                border.width: 1
+                border.width: inCircle ? 0 : 1
                 border.color: Kirigami.Theme.backgroundColor
 
                 SequentialAnimation on opacity {

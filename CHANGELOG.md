@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-11-17
+
+### Changed
+
+- The green dot shown while a check runs sits inside the empty bottom circle of the branch symbol, in every
+  state of the bundled icons. In a corner it covered the red badge of the muted icon, so that badge seemed to
+  blink. The "new" icon now also stays during a check (its orange dot was hidden for that). With an icon
+  chosen in the settings the dot stays in a corner.
+
 ## [1.6] - 2026-11-17
 
 ### Added
@@ -239,7 +248,8 @@ First public release.
   Local File…*), and `scripts/package.sh` to build it from the source.
 - Documentation: `README.md`, `SECURITY.md`, this changelog and issue templates.
 
-[Unreleased]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.6...HEAD
+[Unreleased]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.6...v1.6.1
 [1.6]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.5...v1.6
 [1.5]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.4...v1.5
 [1.4]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.3...v1.4
