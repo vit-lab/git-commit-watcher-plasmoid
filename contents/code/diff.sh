@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Git Commit Watcher helper: prints the changes of one commit (read-only).
+# Plasma Git Watcher helper: prints the changes of one commit (read-only).
 #
-# Input (environment): GCW_REPO, GCW_HASH, GCW_KEY, GCW_TOKEN_FILE (the key and token are needed for a
+# Input (environment): PGW_REPO, PGW_HASH, PGW_KEY, PGW_TOKEN_FILE (the key and token are needed for a
 #   remote URL: its cache has no file contents, and git downloads the changed files of the commit).
 # Output: "STATUS=ok" followed by the plain `git show` text (at most 4001 lines),
 #         or "STATUS=error" / "MSG=<text>".
@@ -21,10 +21,10 @@ expand() {
     esac
 }
 
-REPO=$(expand "${GCW_REPO:-}")
-HASH="${GCW_HASH:-}"
-KEY=$(expand "${GCW_KEY:-}")
-TOKEN_FILE=$(expand "${GCW_TOKEN_FILE:-}")
+REPO=$(expand "${PGW_REPO:-}")
+HASH="${PGW_HASH:-}"
+KEY=$(expand "${PGW_KEY:-}")
+TOKEN_FILE=$(expand "${PGW_TOKEN_FILE:-}")
 
 [ -n "$REPO" ] || fail "No repository configured."
 case "$HASH" in
@@ -57,7 +57,7 @@ if [ -z "$FULL" ] && [ ! -d "$REPO" ] && [ "${#HASH}" -eq 40 ]; then
     fetch_commit() {
         "${TOF[@]}" git -C "$DIR" fetch --quiet --no-tags --depth=2 --filter=blob:none origin "$HASH" 2>&1
     }
-    LOCK="${XDG_RUNTIME_DIR:-}/gcw-$(printf '%s' "$DIR" | sha1sum | cut -c1-12).lock"
+    LOCK="${XDG_RUNTIME_DIR:-}/pgw-$(printf '%s' "$DIR" | sha1sum | cut -c1-12).lock"
     if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "${XDG_RUNTIME_DIR:-}" ] && command -v flock >/dev/null 2>&1; then
         ERR=$( ( flock -w 200 9 || { printf 'Timed out waiting for a check of this repository.'; exit 1; }
                  fetch_commit ) 9>"$LOCK" ) \

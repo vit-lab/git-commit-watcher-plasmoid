@@ -2,7 +2,7 @@
 
 ## Please read first: use with caution
 
-**Git Commit Watcher is provided "as is", without warranty of any kind, and you use it entirely at your own
+**Plasma Git Watcher is provided "as is", without warranty of any kind, and you use it entirely at your own
 risk.** It runs `git` and `ssh` on your computer, can use your SSH private keys and HTTPS access tokens, and
 shows content of your repositories on your screen.
 
@@ -28,9 +28,9 @@ Only the latest release receives fixes.
 Please report security problems **privately**, not in a public issue:
 
 - Use GitHub's **"Report a vulnerability"** button on the
-  [Security tab](https://github.com/vit-lab/git-commit-watcher-plasmoid/security/advisories/new) of the
+  [Security tab](https://github.com/vit-lab/plasma-git-watcher/security/advisories/new) of the
   repository, or
-- write to **vitalyle@protonmail.com** with "Git Commit Watcher security" in the subject.
+- write to **vitalyle@protonmail.com** with "Plasma Git Watcher security" in the subject.
 
 Please include the version (`grep Version ~/.local/share/plasma/plasmoids/local.gitcommitwatcher/metadata.json`),
 what you did, what you expected and what happened. **Never send private keys, passphrases or tokens.**
@@ -42,7 +42,7 @@ This is a hobby project: I answer on a best-effort basis and cannot promise resp
   (plus `git init --bare` for its own cache folder). It never commits, pushes, merges, checks out or changes your working tree, branches or index.
 - `git fetch` in a **local clone** updates the clone's remote-tracking branches and object database inside
   `.git`, exactly as if you ran `git fetch` yourself.
-- For **remote URLs** it keeps its own small shallow bare repository in `~/.cache/gitcommitwatcher/`.
+- For **remote URLs** it keeps its own small shallow bare repository in `~/.cache/plasmagitwatcher/`.
 - It runs shell helper scripts through Plasma's `executable` data engine. Values such as paths, branch names
   and commit ids are single-quoted or validated, and commit ids are checked to be hexadecimal.
 - It opens web links and files with your default applications (see *Open File* below).
@@ -59,7 +59,7 @@ This is a hobby project: I answer on a best-effort basis and cannot promise resp
   settings and never put on a command line.
 - **A key loaded into the widget's private `ssh-agent` can be used by any program running as your user**
   (that is how every `ssh-agent` works) until you press **Lock**, the optional lifetime expires, or you log
-  out. The agent socket is `$XDG_RUNTIME_DIR/gcw-agent-<uid>.sock`.
+  out. The agent socket is `$XDG_RUNTIME_DIR/pgw-agent-<uid>.sock`.
 - **Host keys:** SSH connections use `StrictHostKeyChecking=accept-new`: the host key of a server you have
   never connected to is accepted automatically the first time (and checked on later connections). If you need
   stricter behavior, connect once yourself (`ssh -T git@host`) and verify the fingerprint before adding the
@@ -86,8 +86,8 @@ This is a hobby project: I answer on a best-effort basis and cannot promise resp
   repository can contain configuration that makes git run programs.
 - **Open File** opens a file from a commit with your default application. Files from repositories can be
   malicious (documents with macros, scripts, installers, …). Open only files you trust. The copy is saved
-  without execute permission (read-only) in `~/.cache/gitcommitwatcher/files/` and removed after a week.
-- **Private data on disk and on screen.** The cache folder `~/.cache/gitcommitwatcher/` contains copies of
+  without execute permission (read-only) in `~/.cache/plasmagitwatcher/files/` and removed after a week.
+- **Private data on disk and on screen.** The cache folder `~/.cache/plasmagitwatcher/` contains copies of
   commits from private repositories you watch by URL (and files opened with *Open File*). Notifications and the
   popup show author names and commit messages — take care when you share your screen. Delete the cache folder to
   remove the data.
@@ -103,7 +103,7 @@ This is a hobby project: I answer on a best-effort basis and cannot promise resp
 3. Keep key and token files at `chmod 600`.
 4. Watch only repositories you trust.
 5. Install the widget only from the `.plasmoid` file on the official
-   [Releases page](https://github.com/vit-lab/git-commit-watcher-plasmoid/releases) of this repository (or build
+   [Releases page](https://github.com/vit-lab/plasma-git-watcher/releases) of this repository (or build
    it yourself from the source with `./scripts/package.sh`), and compare `sha256sum <file>` with the checksum in
    the release notes when one is given. Do not install copies from other places.
 6. Update to the latest release and read the [CHANGELOG](CHANGELOG.md).

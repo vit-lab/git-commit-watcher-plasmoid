@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
-# Git Commit Watcher helper: fetches a repository and prints its latest commits.
+# Plasma Git Watcher helper: fetches a repository and prints its latest commits.
 #
-# Input (environment): GCW_REPO, GCW_BRANCH, GCW_KEY, GCW_TOKEN_FILE, GCW_LIMIT
-#   GCW_MODE=branches: print only the branches ("B<US>name" lines) instead of the commits.
-#   GCW_CYCLE: an id of the check round (optional). The widget checks every watched branch of a
+# Input (environment): PGW_REPO, PGW_BRANCH, PGW_KEY, PGW_TOKEN_FILE, PGW_LIMIT
+#   PGW_MODE=branches: print only the branches ("B<US>name" lines) instead of the commits.
+#   PGW_CYCLE: an id of the check round (optional). The widget checks every watched branch of a
 #     repository at the same moment; with the same id those checks talk to the remote only once
 #     (one fetch of a local clone, one "ls-remote" and one fetch for a remote URL) and share the result.
-#   GCW_BRANCHES: all watched branches of this repository (space-separated, optional). The first check
+#   PGW_BRANCHES: all watched branches of this repository (space-separated, optional). The first check
 #     of a round fetches the new commits of all of them at once.
-#   GCW_PROGRESS_ID: a name for the progress file (optional). While a fetch runs, git's progress is
-#     written to $XDG_RUNTIME_DIR/gcw-progress-<id>.txt, and the widget shows it.
-#   GCW_REPO is either a path to a local clone or a remote URL (ssh/https).
-#   GCW_MODE=stop: stops all running checks (the Stop button of the widget) and prints "STATUS=ok".
-#   GCW_MULTI=1: checks every branch in GCW_BRANCHES, one after another in this one process, and prints the
+#   PGW_PROGRESS_ID: a name for the progress file (optional). While a fetch runs, git's progress is
+#     written to $XDG_RUNTIME_DIR/pgw-progress-<id>.txt, and the widget shows it.
+#   PGW_REPO is either a path to a local clone or a remote URL (ssh/https).
+#   PGW_MODE=stop: stops all running checks (the Stop button of the widget) and prints "STATUS=ok".
+#   PGW_MULTI=1: checks every branch in PGW_BRANCHES, one after another in this one process, and prints the
 #     result of each after a line "U<US>branch". The widget starts one process per repository this way, not
 #     one per branch: with many branches, starting and handling a process for each of them made the panel
 #     stall for a second or two.
 #
-# Every check runs in a session of its own (setsid) and leaves a file $XDG_RUNTIME_DIR/gcw-check-<pid>.run
+# Every check runs in a session of its own (setsid) and leaves a file $XDG_RUNTIME_DIR/pgw-check-<pid>.run
 # while it runs, so that "stop" can end it together with its git, ssh and timeout processes.
 #
 # Output: KEY=VALUE lines (STATUS, TIP, URL, MSG) followed by one line per commit:
@@ -30,12 +30,12 @@
 US=$'\x1f'
 
 # Mode "stop": end every running check, with all its processes (see above).
-if [ "${GCW_MODE:-}" = "stop" ]; then
+if [ "${PGW_MODE:-}" = "stop" ]; then
     D="${XDG_RUNTIME_DIR:-}"
     if [ -n "$D" ] && [ -d "$D" ]; then
-        for f in "$D"/gcw-check-*.run; do
+        for f in "$D"/pgw-check-*.run; do
             [ -f "$f" ] || continue
-            p="${f##*/gcw-check-}"
+            p="${f##*/pgw-check-}"
             p="${p%.run}"
             case "$p" in
                 "" | *[!0-9]*) rm -f "$f"; continue ;;
@@ -52,32 +52,32 @@ if [ "${GCW_MODE:-}" = "stop" ]; then
 fi
 
 # Run in a session of our own, so that "stop" can end this check with everything it started.
-if [ -z "${GCW_SESSION:-}" ] && command -v setsid >/dev/null 2>&1; then
-    export GCW_SESSION=1
+if [ -z "${PGW_SESSION:-}" ] && command -v setsid >/dev/null 2>&1; then
+    export PGW_SESSION=1
     exec setsid -w bash "$0" "$@"
 fi
 # A check is background work: it must not compete with the desktop for the processor or the disk (a big
 # first download, or the removal of old caches, could make the panel stutter). Its git, ssh and rm
 # processes inherit this.
-if [ -n "${GCW_SESSION:-}" ]; then
+if [ -n "${PGW_SESSION:-}" ]; then
     renice -n 10 -p $$ >/dev/null 2>&1
     command -v ionice >/dev/null 2>&1 && ionice -c 2 -n 7 -p $$ >/dev/null 2>&1
 fi
-if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "${XDG_RUNTIME_DIR:-}" ] && [ -n "${GCW_SESSION:-}" ]; then
-    RUNFILE="$XDG_RUNTIME_DIR/gcw-check-$$.run"
+if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "${XDG_RUNTIME_DIR:-}" ] && [ -n "${PGW_SESSION:-}" ]; then
+    RUNFILE="$XDG_RUNTIME_DIR/pgw-check-$$.run"
     : > "$RUNFILE"
     trap 'rm -f "$RUNFILE"' EXIT
     trap 'exit 143' TERM INT HUP
 fi
 
-# Mode "several branches" (see GCW_MULTI above). The branches share one "ls-remote" and one fetch through
+# Mode "several branches" (see PGW_MULTI above). The branches share one "ls-remote" and one fetch through
 # the round id; without one, this process makes its own.
-if [ "${GCW_MULTI:-}" = "1" ]; then
-    [ -n "${GCW_CYCLE:-}" ] || export GCW_CYCLE="m$$"
+if [ "${PGW_MULTI:-}" = "1" ]; then
+    [ -n "${PGW_CYCLE:-}" ] || export PGW_CYCLE="m$$"
     set -f
-    for b in ${GCW_BRANCHES:-}; do
+    for b in ${PGW_BRANCHES:-}; do
         printf 'U%s%s\n' "$US" "$b"
-        GCW_MULTI="" GCW_BRANCH="$b" bash "$0"
+        PGW_MULTI="" PGW_BRANCH="$b" bash "$0"
     done
     exit 0
 fi
@@ -97,11 +97,11 @@ expand() {
     esac
 }
 
-REPO=$(expand "${GCW_REPO:-}")
-BRANCH="${GCW_BRANCH:-}"
-KEY=$(expand "${GCW_KEY:-}")
-TOKEN_FILE=$(expand "${GCW_TOKEN_FILE:-}")
-LIMIT="${GCW_LIMIT:-50}"
+REPO=$(expand "${PGW_REPO:-}")
+BRANCH="${PGW_BRANCH:-}"
+KEY=$(expand "${PGW_KEY:-}")
+TOKEN_FILE=$(expand "${PGW_TOKEN_FILE:-}")
+LIMIT="${PGW_LIMIT:-50}"
 case "$LIMIT" in
     "" | *[!0-9]*) LIMIT=50 ;;
 esac
@@ -126,7 +126,7 @@ run_git() { "${TO[@]}" git -C "$DIR" "$@" 2>&1; }
 # Sharing between the checks of one round needs flock and a private directory for the small state
 # files (the runtime directory of the user); without them every check works on its own.
 RUN="${XDG_RUNTIME_DIR:-}"
-CYCLE="${GCW_CYCLE:-}"
+CYCLE="${PGW_CYCLE:-}"
 case "$CYCLE" in
     *[!0-9a-zA-Z-]*) CYCLE="" ;;
 esac
@@ -137,10 +137,10 @@ if [ -z "$RUN" ] || [ ! -d "$RUN" ] || [ -z "$HAVE_FLOCK" ]; then
 fi
 
 PROGRESS=""
-PID_="${GCW_PROGRESS_ID:-}"
+PID_="${PGW_PROGRESS_ID:-}"
 case "$PID_" in
     "" | *[!0-9a-zA-Z_-]*) ;;
-    *) [ -n "$RUN" ] && [ -d "$RUN" ] && PROGRESS="$RUN/gcw-progress-$PID_.txt" ;;
+    *) [ -n "$RUN" ] && [ -d "$RUN" ] && PROGRESS="$RUN/pgw-progress-$PID_.txt" ;;
 esac
 
 # Runs "$@" (a command that talks to the remote) once per round: the first check of the round runs
@@ -155,8 +155,8 @@ once_per_round() {
         "$@" 2>&1
         return
     fi
-    state="$RUN/gcw-$name.state"
-    lock="$RUN/gcw-$lockname.lock"
+    state="$RUN/pgw-$name.state"
+    lock="$RUN/pgw-$lockname.lock"
     (
         flock -w 660 9 || { printf '%s' "Timed out waiting for another check of this repository."; exit 1; }
         if [ -n "$CYCLE" ]; then
@@ -232,15 +232,15 @@ prepare_cache() {
             && git -C "$DIR" config remote.origin.partialclonefilter blob:none \
             || return 1
     fi
-    touch "$DIR/gcw-used" 2>/dev/null
+    touch "$DIR/pgw-used" 2>/dev/null
     return 0
 }
 
-# The number of commits per branch that the cache repository is known to hold (file gcw-depth; a cache
+# The number of commits per branch that the cache repository is known to hold (file pgw-depth; a cache
 # made before this file existed holds the 50 + 1 commits that were downloaded then).
 cache_depth() {
     local d
-    d=$(head -n1 "$DIR/gcw-depth" 2>/dev/null)
+    d=$(head -n1 "$DIR/pgw-depth" 2>/dev/null)
     case "$d" in
         "" | *[!0-9]*) d=51 ;;
     esac
@@ -252,8 +252,8 @@ cache_depth() {
 # A fetch with a smaller number than before may shorten what the cache holds, so the number is lowered.
 fetch_cache() {
     net_fetch "$DIR" --no-tags --depth="$((LIMIT + 1))" --filter=blob:none origin "$@" || return 1
-    if [ "$((LIMIT + 1))" -lt "$(cache_depth)" ] || [ ! -f "$DIR/gcw-depth" ]; then
-        printf '%s\n' "$((LIMIT + 1))" > "$DIR/gcw-depth" 2>/dev/null
+    if [ "$((LIMIT + 1))" -lt "$(cache_depth)" ] || [ ! -f "$DIR/pgw-depth" ]; then
+        printf '%s\n' "$((LIMIT + 1))" > "$DIR/pgw-depth" 2>/dev/null
     fi
     return 0
 }
@@ -268,37 +268,37 @@ fetch_watched() {
         git check-ref-format "refs/heads/$b" 2>/dev/null || continue
         tip=$(printf '%s\n' "$HEADS" | awk -v ref="refs/heads/$b" '$2 == ref { print $1; exit }')
         [ -n "$tip" ] || continue
-        have=$(git -C "$DIR" rev-parse --verify --quiet "refs/gcw/tips/$b^{commit}")
+        have=$(git -C "$DIR" rev-parse --verify --quiet "refs/pgw/tips/$b^{commit}")
         if [ -n "$deepen" ] || [ "$tip" != "$have" ]; then
-            specs+=("+refs/heads/$b:refs/gcw/tips/$b")
+            specs+=("+refs/heads/$b:refs/pgw/tips/$b")
         fi
     done
     [ "${#specs[@]}" -gt 0 ] || return 0
     fetch_cache "${specs[@]}" || return 1
     if [ -n "$deepen" ]; then
-        printf '%s\n' "$((LIMIT + 1))" > "$DIR/gcw-depth" 2>/dev/null
+        printf '%s\n' "$((LIMIT + 1))" > "$DIR/pgw-depth" 2>/dev/null
     fi
     return 0
 }
 
-# Removes caches that are no longer used: the per-branch caches of version 1.3 and older (folders with
-# 12-character names directly in the cache folder) and cache repositories unused for 30 days.
+# Removes caches that are no longer used: the cache folder of the versions called "Git Commit Watcher"
+# (1.5 and older, ~/.cache/gitcommitwatcher, with all the copies they made), and copies unused for 30 days.
 cleanup_caches() {
-    local base="${XDG_CACHE_HOME:-$HOME/.cache}/gitcommitwatcher"
-    [ -d "$base" ] || return 0
+    local cache="${XDG_CACHE_HOME:-$HOME/.cache}"
+    local base="$cache/plasmagitwatcher"
     local idle=()
     command -v ionice >/dev/null 2>&1 && idle=(ionice -c 3)     # deleting many files is heavy on the disk
-    find "$base" -mindepth 1 -maxdepth 1 -type d -name '????????????' -exec test -f '{}/HEAD' ';' \
-        -exec "${idle[@]}" rm -rf '{}' + 2>/dev/null
-    find "$base/repos" -mindepth 2 -maxdepth 2 -name gcw-used -mtime +30 -printf '%h\0' 2>/dev/null \
+    [ -d "$cache/gitcommitwatcher" ] && "${idle[@]}" rm -rf "$cache/gitcommitwatcher"
+    [ -d "$base" ] || return 0
+    find "$base/repos" -mindepth 2 -maxdepth 2 -name pgw-used -mtime +30 -printf '%h\0' 2>/dev/null \
         | xargs -0 -r "${idle[@]}" rm -rf
     # The history copies of the search in the whole history (search.sh), unused for 30 days.
-    find "$base/history" -mindepth 2 -maxdepth 2 -name gcw-used -mtime +30 -printf '%h\0' 2>/dev/null \
+    find "$base/history" -mindepth 2 -maxdepth 2 -name pgw-used -mtime +30 -printf '%h\0' 2>/dev/null \
         | xargs -0 -r "${idle[@]}" rm -rf
 }
 
 # Mode "branches": only list the branches of the repository (for the ALL / pattern setting).
-if [ "${GCW_MODE:-}" = "branches" ]; then
+if [ "${PGW_MODE:-}" = "branches" ]; then
     if [ -d "$REPO" ]; then
         DIR="$REPO"
         OUT=$(run_git rev-parse --git-dir) || fail "Not a git repository: $REPO"
@@ -317,6 +317,11 @@ if [ "${GCW_MODE:-}" = "branches" ]; then
 fi
 
 URL=""
+if [ -n "$RUN" ] && [ -n "$HAVE_FLOCK" ]; then
+    ( flock -n 8 && cleanup_caches ) 8>"$RUN/pgw-cleanup.lock"
+else
+    cleanup_caches
+fi
 if [ -d "$REPO" ]; then
     # --- Local clone: fetch and compare against the remote-tracking branch ---
     DIR="$REPO"
@@ -334,20 +339,15 @@ else
     # --- Remote URL: the cache repository of this URL, shared by its branches ---
     DIR=$(cache_dir_of "$REPO")
     LOCKNAME=$(printf '%s' "$DIR" | sha1sum | cut -c1-12)
-    if [ -n "$RUN" ] && [ -n "$HAVE_FLOCK" ]; then
-        ( flock -n 8 && cleanup_caches ) 8>"$RUN/gcw-cleanup.lock"
-    else
-        cleanup_caches
-    fi
     OUT=$(once_per_round "$LOCKNAME" "$(state_name "prepare|$DIR")" prepare_cache) \
         || fail "Cannot create the cache repository $DIR: $OUT"
     if [ -n "$BRANCH" ]; then
         git check-ref-format "refs/heads/$BRANCH" 2>/dev/null || fail "Invalid branch name: $BRANCH"
         REF="refs/heads/$BRANCH"
-        TIPREF="refs/gcw/tips/$BRANCH"
+        TIPREF="refs/pgw/tips/$BRANCH"
     else
         REF="HEAD"
-        TIPREF="refs/gcw/head"
+        TIPREF="refs/pgw/head"
     fi
     if [ -n "$BRANCH" ] && [ -n "$CYCLE" ]; then
         # In a round, ask the remote once for the tips of all branches, and let the first check fetch
@@ -355,7 +355,7 @@ else
         HEADS=$(remote_heads) || fail "git ls-remote failed: $HEADS"
         printf '%s\n' "$HEADS" | awk -v ref="$REF" '$2 == ref { found = 1 } END { exit !found }' \
             || fail "Branch not found: $BRANCH"
-        BRANCHES="$BRANCH ${GCW_BRANCHES:-}"
+        BRANCHES="$BRANCH ${PGW_BRANCHES:-}"
         OUT=$(once_per_round "$LOCKNAME" "$(state_name "fetch|$REPO")" fetch_watched) \
             || fail "git fetch failed: $OUT"
     else

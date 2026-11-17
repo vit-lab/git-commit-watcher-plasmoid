@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Git Commit Watcher helper: saves one file as it is in a given commit to the widget's own
+# Plasma Git Watcher helper: saves one file as it is in a given commit to the widget's own
 # cache folder, so that it can be opened with the default application. Read-only for the
 # repository: nothing is written to it, and the working tree is not touched.
 #
-# Input (environment): GCW_REPO, GCW_HASH, GCW_PATH (path inside the repository), GCW_KEY,
-#   GCW_TOKEN_FILE (for a remote URL, whose cache may not have the file yet: git downloads it).
+# Input (environment): PGW_REPO, PGW_HASH, PGW_PATH (path inside the repository), PGW_KEY,
+#   PGW_TOKEN_FILE (for a remote URL, whose cache may not have the file yet: git downloads it).
 # Output: "STATUS=ok" and "FILE=<absolute path of the copy>", or "STATUS=error" / "MSG=<text>".
 
 fail() {
@@ -22,11 +22,11 @@ expand() {
     esac
 }
 
-REPO=$(expand "${GCW_REPO:-}")
-HASH="${GCW_HASH:-}"
-KEY=$(expand "${GCW_KEY:-}")
-TOKEN_FILE=$(expand "${GCW_TOKEN_FILE:-}")
-P="${GCW_PATH:-}"
+REPO=$(expand "${PGW_REPO:-}")
+HASH="${PGW_HASH:-}"
+KEY=$(expand "${PGW_KEY:-}")
+TOKEN_FILE=$(expand "${PGW_TOKEN_FILE:-}")
+P="${PGW_PATH:-}"
 
 [ -n "$REPO" ] || fail "No repository configured."
 case "$HASH" in
@@ -59,7 +59,7 @@ TYPE=$(git -C "$DIR" cat-file -t "$SPEC" 2>/dev/null) \
 SIZE=$(git -C "$DIR" cat-file -s "$SPEC" 2>/dev/null || echo 0)
 [ "$SIZE" -le 52428800 ] 2>/dev/null || fail "The file is larger than 50 MB: $P"
 
-BASE="${XDG_CACHE_HOME:-$HOME/.cache}/gitcommitwatcher/files"
+BASE="${XDG_CACHE_HOME:-$HOME/.cache}/plasmagitwatcher/files"
 SHORT=$(printf '%s' "$HASH" | cut -c1-12)
 OUT="$BASE/$SHORT/$P"
 

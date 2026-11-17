@@ -198,11 +198,11 @@ function expandRepos(repos, discovered, maxAuto) {
 }
 
 function branchesCommand(script, o) {
-    return "GCW_MODE=branches"
-        + (o.cycle ? " GCW_CYCLE=" + q(o.cycle) : "")
-        + " GCW_REPO=" + q(o.repo)
-        + " GCW_KEY=" + q(o.key)
-        + " GCW_TOKEN_FILE=" + q(o.tokenFile)
+    return "PGW_MODE=branches"
+        + (o.cycle ? " PGW_CYCLE=" + q(o.cycle) : "")
+        + " PGW_REPO=" + q(o.repo)
+        + " PGW_KEY=" + q(o.key)
+        + " PGW_TOKEN_FILE=" + q(o.tokenFile)
         + " bash " + q(script) + uniq();
 }
 
@@ -236,20 +236,20 @@ function repoDisplayName(r) {
 // o = { repo, hash, key, tokenFile }: the key and token let git download the changed files of a
 // repository watched by URL (its cache has no file contents).
 function diffCommand(script, o) {
-    return "GCW_REPO=" + q(o.repo)
-        + " GCW_HASH=" + q(o.hash)
-        + " GCW_KEY=" + q(o.key)
-        + " GCW_TOKEN_FILE=" + q(o.tokenFile)
+    return "PGW_REPO=" + q(o.repo)
+        + " PGW_HASH=" + q(o.hash)
+        + " PGW_KEY=" + q(o.key)
+        + " PGW_TOKEN_FILE=" + q(o.tokenFile)
         + " bash " + q(script) + uniq();
 }
 
 // Saves one file of a commit to the widget cache (openfile.sh); o = { repo, hash, path, key, tokenFile }.
 function openFileCommand(script, o) {
-    return "GCW_REPO=" + q(o.repo)
-        + " GCW_HASH=" + q(o.hash)
-        + " GCW_PATH=" + q(o.path)
-        + " GCW_KEY=" + q(o.key)
-        + " GCW_TOKEN_FILE=" + q(o.tokenFile)
+    return "PGW_REPO=" + q(o.repo)
+        + " PGW_HASH=" + q(o.hash)
+        + " PGW_PATH=" + q(o.path)
+        + " PGW_KEY=" + q(o.key)
+        + " PGW_TOKEN_FILE=" + q(o.tokenFile)
         + " bash " + q(script) + uniq();
 }
 
@@ -573,14 +573,14 @@ function authorsOf(list) {
 // o.branches: the branches to search (none = the default one); o.query: the search text; o.max: the most
 // commits wanted; o.author and o.field: the options of the advanced search (see filterCommits).
 function searchCommand(script, o) {
-    return "GCW_REPO=" + q(o.repo)
-        + " GCW_BRANCHES=" + q((o.branches || []).join(" "))
-        + " GCW_KEY=" + q(o.key)
-        + " GCW_TOKEN_FILE=" + q(o.tokenFile)
-        + " GCW_QUERY=" + q(o.query)
-        + " GCW_AUTHOR=" + q(o.author || "")
-        + " GCW_FIELD=" + ((o.field | 0) || 0)
-        + " GCW_MAX=" + (o.max || 200)
+    return "PGW_REPO=" + q(o.repo)
+        + " PGW_BRANCHES=" + q((o.branches || []).join(" "))
+        + " PGW_KEY=" + q(o.key)
+        + " PGW_TOKEN_FILE=" + q(o.tokenFile)
+        + " PGW_QUERY=" + q(o.query)
+        + " PGW_AUTHOR=" + q(o.author || "")
+        + " PGW_FIELD=" + ((o.field | 0) || 0)
+        + " PGW_MAX=" + (o.max || 200)
         + " bash " + q(script) + uniq();
 }
 
@@ -694,29 +694,29 @@ function metaHtml(c, prefix, col) {
 // o.cycle (optional): the id of the check round; checks with the same id share one fetch (see check.sh).
 // o.branches (optional): all watched branches of the repository, fetched together in a round.
 // o.progressId (optional): the name of the progress file of the repository (see progressKey).
-// o.multi (optional): check all of o.branches in one process (see check.sh, GCW_MULTI, and splitBranchOutput).
+// o.multi (optional): check all of o.branches in one process (see check.sh, PGW_MULTI, and splitBranchOutput).
 function checkCommand(script, o) {
-    return (o.cycle ? "GCW_CYCLE=" + q(o.cycle) + " " : "")
-        + (o.branches && o.branches.length ? "GCW_BRANCHES=" + q(o.branches.join(" ")) + " " : "")
-        + (o.progressId ? "GCW_PROGRESS_ID=" + q(o.progressId) + " " : "")
-        + (o.multi ? "GCW_MULTI=1 " : "")
-        + "GCW_REPO=" + q(o.repo)
-        + " GCW_BRANCH=" + q(o.branch)
-        + " GCW_KEY=" + q(o.key)
-        + " GCW_TOKEN_FILE=" + q(o.tokenFile)
-        + " GCW_LIMIT=" + (o.limit || 50)
+    return (o.cycle ? "PGW_CYCLE=" + q(o.cycle) + " " : "")
+        + (o.branches && o.branches.length ? "PGW_BRANCHES=" + q(o.branches.join(" ")) + " " : "")
+        + (o.progressId ? "PGW_PROGRESS_ID=" + q(o.progressId) + " " : "")
+        + (o.multi ? "PGW_MULTI=1 " : "")
+        + "PGW_REPO=" + q(o.repo)
+        + " PGW_BRANCH=" + q(o.branch)
+        + " PGW_KEY=" + q(o.key)
+        + " PGW_TOKEN_FILE=" + q(o.tokenFile)
+        + " PGW_LIMIT=" + (o.limit || 50)
         + " bash " + q(script) + uniq();
 }
 
 // Stops all running checks, with their git processes (check.sh, mode "stop").
 function stopCommand(script) {
-    return "GCW_MODE=stop bash " + q(script) + uniq();
+    return "PGW_MODE=stop bash " + q(script) + uniq();
 }
 
 // action: "status" | "unlock" | "lock"; o = { key, lifetime (seconds) }
 function agentCommand(script, action, o) {
-    return "GCW_KEY=" + q(o.key)
-        + " GCW_LIFETIME=" + ((o.lifetime | 0) || 0)
+    return "PGW_KEY=" + q(o.key)
+        + " PGW_LIFETIME=" + ((o.lifetime | 0) || 0)
         + " bash " + q(script) + " " + action + uniq();
 }
 
@@ -742,7 +742,7 @@ function parseAgent(stdout, stderr, exitCode) {
 function notifyCommand(o, title, body) {
     var urgencies = ["low", "normal", "critical"];
     var u = urgencies[Math.min(2, Math.max(0, o.urgency | 0))];
-    var cmd = "notify-send -a " + q("Git Commit Watcher") + " -u " + u;
+    var cmd = "notify-send -a " + q("Plasma Git Watcher") + " -u " + u;
     if (o.icon) {
         cmd += " -i " + q(o.icon);
     }
@@ -842,8 +842,8 @@ function progressKey(id) {
 // Prints the last line of every progress file: "P<US>key<US>line" (see check.sh, net_fetch).
 function progressCommand() {
     return 'd="${XDG_RUNTIME_DIR:-}"; [ -n "$d" ] || exit 0; '
-        + 'for f in "$d"/gcw-progress-*.txt; do [ -f "$f" ] || continue; '
-        + 'n="${f##*/gcw-progress-}"; '
+        + 'for f in "$d"/pgw-progress-*.txt; do [ -f "$f" ] || continue; '
+        + 'n="${f##*/pgw-progress-}"; '
         + 'printf \'P\\037%s\\037%s\\n\' "${n%.txt}" "$(tail -c 400 "$f" | tr \'\\r\' \'\\n\' | grep -v \'^[[:space:]]*$\' | tail -n 1)"; '
         + 'done' + uniq();
 }
@@ -895,7 +895,7 @@ function etaSeconds(elapsedMs, done, left) {
     return Math.round(elapsedMs / 1000 * left / done);
 }
 
-// Splits the output of a check of several branches (check.sh, GCW_MULTI) into { branch: output }.
+// Splits the output of a check of several branches (check.sh, PGW_MULTI) into { branch: output }.
 // Output before the first "U<US>branch" line (a failure of the whole check) is returned as "".
 function splitBranchOutput(stdout) {
     var out = {};

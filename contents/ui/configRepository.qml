@@ -515,7 +515,7 @@ KCM.SimpleKCM {
                 QQC2.TextField {
                     id: tokenField
                     Layout.fillWidth: true
-                    placeholderText: i18n("~/.config/gcw-token  (optional)")
+                    placeholderText: i18n("~/.config/pgw-token  (optional)")
                     onTextEdited: page.setField("tokenFile", text)
                 }
                 QQC2.Button {

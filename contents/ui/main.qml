@@ -231,7 +231,7 @@ PlasmoidItem {
         cancelDeepSearch();
     }
     property string problemsSig: ""
-    property string cycle: ""            // id of the current check round (see check.sh, GCW_CYCLE)
+    property string cycle: ""            // id of the current check round (see check.sh, PGW_CYCLE)
     property int cycleCount: 0
 
     property var diffCommit: null
@@ -296,7 +296,7 @@ PlasmoidItem {
         return names.join(", ");
     }
     readonly property bool showBranchBar: branchGroups.length > 0
-    readonly property string headerTitle: { root.rev; return parentCount() === 1 ? repoList[0].baseName : i18n("Git Commit Watcher"); }
+    readonly property string headerTitle: { root.rev; return parentCount() === 1 ? repoList[0].baseName : i18n("Plasma Git Watcher"); }
 
     // Re-read the repository list whenever the setting changes (e.g. after "Apply").
     readonly property string reposJson: cfg.repos
@@ -448,7 +448,7 @@ PlasmoidItem {
     // With "pin" on, the popup stays open when another window gets the focus.
     hideOnWindowDeactivate: !cfg.pin
 
-    toolTipMainText: parentCount() === 1 ? headerTitle : i18n("Git Commit Watcher")
+    toolTipMainText: parentCount() === 1 ? headerTitle : i18n("Plasma Git Watcher")
     toolTipSubText: {
         root.rev;
         var t = buildTooltip();
@@ -1276,7 +1276,7 @@ PlasmoidItem {
     }
 
     // One check process per repository: a repository watched on several branches gets them all checked in
-    // one process (see check.sh, GCW_MULTI), and its result updates the widget once. A process per branch
+    // one process (see check.sh, PGW_MULTI), and its result updates the widget once. A process per branch
     // made the whole panel stall with many branches: starting the processes and handling every result on
     // its own (badge, tooltip, list) added up to a second or two.
     function checkUnits() {
@@ -1415,7 +1415,7 @@ PlasmoidItem {
     // The result of one check process: one branch entry, or several (each in its own part of the output).
     // Everything is applied first and the widget is updated once.
     function handleResults(ids, cmd, stdout, stderr, exitCode) {
-        if (ids.length === 1 && String(cmd).indexOf("GCW_MULTI=1") < 0) {
+        if (ids.length === 1 && String(cmd).indexOf("PGW_MULTI=1") < 0) {
             applyResult(ids[0], cmd, stdout, stderr, exitCode);
         } else {
             var parts = Helpers.splitBranchOutput(stdout);

@@ -1,4 +1,4 @@
-The icons in this folder (idle-*.svg, new-*.svg) were drawn for Git Commit Watcher
+The icons in this folder (idle-*.svg, new-*.svg) were drawn for Plasma Git Watcher
 and are part of it: GPL-3.0-or-later, like the rest of the widget.
 
 idle-*  : git branch graph, nothing new
