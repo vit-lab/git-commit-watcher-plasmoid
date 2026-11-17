@@ -14,7 +14,7 @@
         "Id": "local.gitcommitwatcher",
         "License": "GPL-3.0+",
         "Name": "Plasma Git Watcher",
-        "Version": "1.6-dev.1",
+        "Version": "1.6",
         "Website": "https://github.com/vit-lab/plasma-git-watcher"
     },
     "X-Plasma-API-Minimum-Version": "6.0"
