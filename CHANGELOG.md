@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- The green dot shown while a check runs sits inside the empty bottom circle of the branch symbol, in every
+  state of the bundled icons. In a corner it covered the red badge of the muted icon, so that badge seemed to
+  blink. The "new" icon now also stays during a check (its orange dot was hidden for that). With an icon
+  chosen in the settings the dot stays in a corner.
+
 ## [1.6] - 2026-11-17
 
 ### Added
