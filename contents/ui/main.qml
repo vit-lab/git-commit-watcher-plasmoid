@@ -730,12 +730,15 @@ PlasmoidItem {
     }
 
     // onlyParent (optional): count only the branches of that repository.
+    // Unread commits of one repository (onlyParent, all its branches), or of all ticked repositories and
+    // branches: an unticked one is switched off and does not count in the badge (see repoShown).
     function sumUnread(onlyParent) {
         var n = 0;
         var seen = {};
+        var active = onlyParent === undefined ? activeSet() : null;
         for (var i = 0; i < repoList.length; ++i) {
             var r = repoList[i];
-            if (onlyParent !== undefined && r.parentId !== onlyParent) {
+            if (onlyParent !== undefined ? r.parentId !== onlyParent : !active[r.id]) {
                 continue;
             }
             var s = st(r.id);
@@ -773,8 +776,14 @@ PlasmoidItem {
         return false;
     }
 
+    // "checking" looks at every repository (a check started before a repository was unticked can still be
+    // stopped); "overflow" and "locked" only at the ticked ones.
     function anyState(which) {
+        var active = which !== "checking" ? activeSet() : null;
         for (var i = 0; i < repoList.length; ++i) {
+            if (active && !active[repoList[i].id]) {
+                continue;
+            }
             var s = st(repoList[i].id);
             if ((which === "overflow" && s.unread > 0 && s.overflow)
                 || (which === "checking" && s.checkState === "checking")
@@ -926,8 +935,12 @@ PlasmoidItem {
         }
         var lines = [];
         var latest = "";
+        var active = activeSet();
         for (var i = 0; i < repoList.length; ++i) {
             var r = repoList[i];
+            if (!active[r.id]) {
+                continue;
+            }
             var s = st(r.id);
             var name = Helpers.repoDisplayName(r);
             if (s.locked) {
@@ -961,6 +974,10 @@ PlasmoidItem {
         }
     }
 
+    // A repository is shown when it is ticked in the drop-down (or when there is only one), and so is a
+    // branch in its "Branches" list. An unticked repository or branch is switched off: it is not checked,
+    // sends no notifications and does not count in the badge and the tooltip; ticked again, it is checked
+    // at once (see setSelection). The ticked branch entries are the active ones (activeSet).
     function repoShown(pid) {
         return !showRepoBar || selRepos.length === 0 || selRepos.indexOf(pid) >= 0;
     }
@@ -992,6 +1009,20 @@ PlasmoidItem {
         return chosen.length > 0 ? chosen : all;
     }
 
+    // The active branch entries (those of effectiveIds) as a set: { id: true }.
+    function activeSet() {
+        var set = {};
+        var ids = effectiveIds();
+        for (var i = 0; i < ids.length; ++i) {
+            set[ids[i]] = true;
+        }
+        return set;
+    }
+
+    function unitActive(u) {
+        return repoShown(u.parentId) && shownUnits(u.parentId).some(function(x) { return x.id === u.id; });
+    }
+
     // The ids of the branch entries whose commits the list shows.
     function effectiveIds() {
         var ids = [];
@@ -1011,8 +1042,27 @@ PlasmoidItem {
     }
 
     function setSelection(repos, branches) {
+        var reposBefore = shownRepoIds();
+        var unitsBefore = activeSet();
         selRepos = repos;
         selBranches = branches;
+        // Switched on again: a ticked repository (with its branch list for ALL), or ticked branches of a
+        // repository that was on already.
+        var tickedRepos = shownRepoIds().filter(function(pid) { return reposBefore.indexOf(pid) < 0; });
+        var tickedIn = [];
+        var ids = effectiveIds();
+        for (var i = 0; i < ids.length; ++i) {
+            var u = repoById(ids[i]);
+            if (u && !unitsBefore[u.id] && tickedRepos.indexOf(u.parentId) < 0 && tickedIn.indexOf(u.parentId) < 0) {
+                tickedIn.push(u.parentId);
+            }
+        }
+        if (tickedRepos.length > 0 || tickedIn.length > 0) {
+            Qt.callLater(function() {
+                root.checkRepos(tickedRepos, true);
+                root.checkRepos(tickedIn, false);
+            });
+        }
         var r = JSON.stringify(repos);
         var b = JSON.stringify(branches);
         if (cfg.filterRepos !== r) {
@@ -1308,23 +1358,51 @@ PlasmoidItem {
         checkUnits();
     }
 
+    // Checks the repositories pids (ids of repository settings) at once, in a round of their own: the ones
+    // just ticked in the drop-down (discover: look up their branch lists for ALL too), or those with
+    // branches just ticked.
+    function checkRepos(pids, discover) {
+        if (pids.length === 0) {
+            return;
+        }
+        cycleCount++;
+        cycle = "c" + Date.now().toString(36) + "-" + cycleCount;
+        for (var i = 0; i < parsedRepos.length && discover; ++i) {
+            var r = parsedRepos[i];
+            if (pids.indexOf(r.id) >= 0 && r.enabled && Helpers.hasWildcard(r.branch)) {
+                discoverRepo(r);
+            }
+        }
+        for (var k = 0; k < pids.length; ++k) {
+            checkParentId(pids[k]);
+        }
+    }
+
+    // Checks the ticked branches of a ticked repository (all of them when none is chosen).
+    function checkParentId(pid) {
+        if (!repoShown(pid)) {
+            return;
+        }
+        var units = shownUnits(pid);
+        if (units.length > 1) {
+            checkParent(units);
+        } else if (units.length === 1) {
+            checkRepo(units[0]);
+        }
+    }
+
     // One check process per repository: a repository watched on several branches gets them all checked in
     // one process (see check.sh, PGW_MULTI), and its result updates the widget once. A process per branch
     // made the whole panel stall with many branches: starting the processes and handling every result on
     // its own (badge, tooltip, list) added up to a second or two.
+    // Only the ticked repositories are checked (see repoShown).
     function checkUnits() {
         var seen = {};
         for (var i = 0; i < repoList.length; ++i) {
             var pid = repoList[i].parentId;
-            if (seen[pid]) {
-                continue;
-            }
-            seen[pid] = true;
-            var units = parentUnits(pid);
-            if (units.length > 1) {
-                checkParent(units);
-            } else {
-                checkRepo(units[0]);
+            if (!seen[pid]) {
+                seen[pid] = true;
+                checkParentId(pid);
             }
         }
     }
@@ -1374,7 +1452,7 @@ PlasmoidItem {
     function discoverAll() {
         for (var i = 0; i < parsedRepos.length; ++i) {
             var r = parsedRepos[i];
-            if (r.enabled && Helpers.hasWildcard(r.branch)) {
+            if (r.enabled && Helpers.hasWildcard(r.branch) && repoShown(r.id)) {
                 discoverRepo(r);
             }
         }
@@ -1440,7 +1518,7 @@ PlasmoidItem {
         }
         startCheck([r], Helpers.checkCommand(scriptPath, {
             repo: r.path, branch: r.branch, key: r.sshKey, tokenFile: r.tokenFile, limit: commitLimit, cycle: cycle,
-            branches: parentUnits(r.parentId).map(function(u) { return u.branch; }).filter(function(b) { return b !== ""; }),
+            branches: shownUnits(r.parentId).map(function(u) { return u.branch; }).filter(function(b) { return b !== ""; }),
             progressId: Helpers.progressKey(r.parentId)
         }));
     }
@@ -1761,8 +1839,9 @@ PlasmoidItem {
 
     function notifyNew(r, fresh) {
         // Muted: no notification and no sound. The commit is still counted as unread, and it is
-        // not announced afterwards when the mute is switched off.
-        if (!cfg.notifyEnabled || cfg.muted) {
+        // not announced afterwards when the mute is switched off. An unticked repository or branch (a check
+        // that was running when it was unticked) is not announced either.
+        if (!cfg.notifyEnabled || cfg.muted || !unitActive(r)) {
             return;
         }
         var list = fresh.list;                 // newest first

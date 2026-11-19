@@ -37,6 +37,8 @@ The context menu of the widget:
 - Choosing what the popup shows: tick any repositories in the drop-down, and the branches of a repository in
   its "Branches" list (with a search field when there are many). Every repository name has its own color in
   the list, and the choice is remembered. With many repositories, the branch rows fold into one line.
+  An unticked repository or branch is switched off: it is not checked and sends no notifications until it is
+  ticked again.
 - Search (the magnifier button or Ctrl+F) by message, author or hash, in the downloaded commits or with "All
   history" in every commit of the shown branches, and an "Advanced" row with an author filter.
 - Small downloads: a repository watched by URL is kept as one small copy shared by all its branches, with only

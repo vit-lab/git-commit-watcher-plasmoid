@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- An unticked repository in the drop-down, or an unticked branch in a repository's "Branches" list, is
+  switched off: it is no longer checked in the background (a repository's branch list for ALL is not looked
+  up either), sends no notifications and does not count in the badge and the tooltip. Ticked again, its
+  repository is checked at once, and new commits since its last check are announced as usual. Until now the
+  check boxes only chose what the list shows.
+
 ## [1.7] - 2026-11-19
 
 ### Added
