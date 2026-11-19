@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.8] - 2026-11-19
+
 ### Added
 
 - Performance settings for the automatic checks: pause them on battery power and/or while the screen is
@@ -285,7 +287,8 @@ First public release.
   Local File…*), and `scripts/package.sh` to build it from the source.
 - Documentation: `README.md`, `SECURITY.md`, this changelog and issue templates.
 
-[Unreleased]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.7...HEAD
+[Unreleased]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.8...HEAD
+[1.8]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.7...v1.8
 [1.7]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.6.1...v1.7
 [1.6.1]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.6...v1.6.1
 [1.6]: https://github.com/vit-lab/plasma-git-watcher/compare/v1.5...v1.6
