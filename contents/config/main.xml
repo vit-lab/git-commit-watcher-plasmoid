@@ -111,6 +111,12 @@
       <min>50</min>
       <max>300</max>
     </entry>
+    <entry name="branchTextScale" type="Int">
+      <!-- text size of the Branches panel (the rows above the commit list), in % -->
+      <default>100</default>
+      <min>50</min>
+      <max>300</max>
+    </entry>
     <entry name="diffTextScale" type="Int">
       <default>100</default>
       <min>50</min>
@@ -134,6 +140,10 @@
     </entry>
 
     <!-- Behavior / appearance -->
+    <entry name="branchRowsFolded" type="Bool">
+      <!-- the branch rows of the popup are folded into one line -->
+      <default>false</default>
+    </entry>
     <entry name="showBadge" type="Bool">
       <default>true</default>
     </entry>

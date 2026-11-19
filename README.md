@@ -34,7 +34,19 @@ The context menu of the widget:
 - Monitoring of several repositories, either local clones or remote SSH/HTTPS URLs, each with its own branch,
   SSH key and token file. One repository can be watched on several branches (`main, dev`), on all of its
   branches (`ALL`) or on those matching a pattern (`release/*`) without adding it twice.
-- Text size of the commit list and of the diff view can be changed with Ctrl + mouse wheel (remembered).
+- Choosing what the popup shows: tick any repositories in the drop-down, and the branches of a repository in
+  its "Branches" list (with a search field when there are many). Every repository name has its own color in
+  the list, and the choice is remembered. With many repositories, the branch rows fold into one line.
+- Search (the magnifier button or Ctrl+F) by message, author or hash, in the downloaded commits or with "All
+  history" in every commit of the shown branches, and an "Advanced" row with an author filter.
+- Small downloads: a repository watched by URL is kept as one small copy shared by all its branches, with only
+  the recent commits and folder listings; the files of a commit are downloaded when its changes are opened.
+- Light on the desktop: one check process per repository, with a low processor and disk priority, and a
+  "Performance" settings page (commits shown at first, commits per branch, branches for ALL).
+- Download progress (step, size, speed, time left) while a check runs, a stop button for a check that hangs,
+  and a small blinking green dot on the panel icon while a check runs.
+- Text size of the commit list, of the branch rows above it and of the diff view can each be changed with
+  Ctrl + mouse wheel over them (remembered).
 - Notifications as a single summary, one per commit, or only for the latest commit. Urgency, timeout, icon and
   sound are configurable, and the author and short hash can be shown or hidden. The sound can be a system
   sound or your own file, with a preview button.
@@ -82,13 +94,13 @@ search for "Plasma Git Watcher". The store page also offers the `.plasmoid` file
 
 ### From the release package
 
-Download `plasma-git-watcher-1.6.1.plasmoid` from the
+Download `plasma-git-watcher-1.7.plasmoid` from the
 [latest release](https://github.com/vit-lab/plasma-git-watcher/releases/latest). Use the file listed
 under Assets; the automatic "Source code" archives are not installable packages.
 
 ```sh
-curl -LO https://github.com/vit-lab/plasma-git-watcher/releases/download/v1.6.1/plasma-git-watcher-1.6.1.plasmoid
-kpackagetool6 -t Plasma/Applet -i plasma-git-watcher-1.6.1.plasmoid
+curl -LO https://github.com/vit-lab/plasma-git-watcher/releases/download/v1.7/plasma-git-watcher-1.7.plasmoid
+kpackagetool6 -t Plasma/Applet -i plasma-git-watcher-1.7.plasmoid
 ```
 
 The package can also be installed from the widget explorer: right-click the panel or desktop, open
@@ -102,7 +114,7 @@ The installed version and the checksum of the downloaded file can be checked wit
 
 ```sh
 grep Version ~/.local/share/plasma/plasmoids/local.gitcommitwatcher/metadata.json
-sha256sum plasma-git-watcher-1.6.1.plasmoid
+sha256sum plasma-git-watcher-1.7.plasmoid
 ```
 
 If the release notes list a SHA-256 checksum, it should match the output of the second command.
