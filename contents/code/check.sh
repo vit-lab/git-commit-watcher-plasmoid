@@ -12,6 +12,8 @@
 #     written to $XDG_RUNTIME_DIR/pgw-progress-<id>.txt, and the widget shows it.
 #   PGW_REPO is either a path to a local clone or a remote URL (ssh/https).
 #   PGW_MODE=stop: stops all running checks (the Stop button of the widget) and prints "STATUS=ok".
+#   PGW_PREPARE=1: "Prepare diffs" (Performance settings): after new commits of a repository watched by URL
+#     are fetched, the changed files of the newest of them are downloaded too (see prepare_diffs).
 #   PGW_MULTI=1: checks every branch in PGW_BRANCHES, one after another in this one process, and prints the
 #     result of each after a line "U<US>branch". The widget starts one process per repository this way, not
 #     one per branch: with many branches, starting and handling a process for each of them made the panel
@@ -258,11 +260,38 @@ fetch_cache() {
     return 0
 }
 
+# "Prepare diffs" (PGW_PREPARE=1): downloads the changed files of the newest new commits (up to 5 per
+# repository and check) right after they were fetched, so that their diffs open at once. $1: the refs of
+# the fetched branches, $2: their tips before the fetch. Merges are left out (no diff is shown for them),
+# and so are commits without a parent in the cache (the oldest one of a shallow copy, a root commit): their
+# diff would download every file of the repository. A failure does not matter: diff.sh downloads what is
+# missing when a diff is opened.
+prepare_diffs() {
+    [ "${PGW_PREPARE:-}" = "1" ] || return 0
+    local c shallow=""
+    [ -f "$DIR/shallow" ] && shallow=$(cat "$DIR/shallow")
+    # shellcheck disable=SC2086
+    for c in $(git -C "$DIR" rev-list --no-merges --max-count=5 $1 ${2:+--not $2} 2>/dev/null); do
+        [ -n "$shallow" ] && printf '%s\n' "$shallow" | grep -qx "$c" && continue
+        git -C "$DIR" cat-file -p "$c" 2>/dev/null | grep -q '^parent ' || continue
+        "${TO[@]}" git -C "$DIR" show --format= --stat -M "$c" >/dev/null 2>&1
+    done
+    return 0
+}
+
+# Fetches one branch (or the default one) of a remote URL outside a round.
+fetch_one() {
+    local old
+    old=$(git -C "$DIR" rev-parse --verify --quiet "$TIPREF^{commit}")
+    fetch_cache "+$REF:$TIPREF" || return 1
+    prepare_diffs "$TIPREF" "$old"
+}
+
 # The first check of a round: fetches every watched branch whose tip on the remote ($HEADS) is not
 # in the cache yet, in one go. When more commits per branch are wanted than the cache holds (the setting
 # was raised), all watched branches are fetched again, which only downloads the older commits.
 fetch_watched() {
-    local specs=() b tip have deepen=""
+    local specs=() refs=() olds=() b tip have deepen=""
     [ "$(cache_depth)" -lt "$((LIMIT + 1))" ] && deepen=1
     for b in $BRANCHES; do
         git check-ref-format "refs/heads/$b" 2>/dev/null || continue
@@ -271,6 +300,8 @@ fetch_watched() {
         have=$(git -C "$DIR" rev-parse --verify --quiet "refs/pgw/tips/$b^{commit}")
         if [ -n "$deepen" ] || [ "$tip" != "$have" ]; then
             specs+=("+refs/heads/$b:refs/pgw/tips/$b")
+            refs+=("refs/pgw/tips/$b")
+            [ -n "$have" ] && olds+=("$have")
         fi
     done
     [ "${#specs[@]}" -gt 0 ] || return 0
@@ -278,7 +309,7 @@ fetch_watched() {
     if [ -n "$deepen" ]; then
         printf '%s\n' "$((LIMIT + 1))" > "$DIR/pgw-depth" 2>/dev/null
     fi
-    return 0
+    prepare_diffs "${refs[*]}" "${olds[*]}"
 }
 
 # Removes caches that are no longer used: the cache folder of the versions called "Git Commit Watcher"
@@ -359,7 +390,7 @@ else
         OUT=$(once_per_round "$LOCKNAME" "$(state_name "fetch|$REPO")" fetch_watched) \
             || fail "git fetch failed: $OUT"
     else
-        OUT=$(once_per_round "$LOCKNAME" "$(state_name "fetch|$REPO|$REF")" fetch_cache "+$REF:$TIPREF") \
+        OUT=$(once_per_round "$LOCKNAME" "$(state_name "fetch|$REPO|$REF")" fetch_one) \
             || fail "git fetch failed: $OUT"
     fi
     URL="$REPO"

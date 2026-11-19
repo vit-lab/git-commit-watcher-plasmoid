@@ -188,6 +188,22 @@
       <min>1</min>
       <max>200</max>
     </entry>
+    <entry name="pauseOnBattery" type="Bool">
+      <label>Pause the automatic checks while the computer runs on battery power</label>
+      <default>false</default>
+    </entry>
+    <entry name="pauseWhenLocked" type="Bool">
+      <label>Pause the automatic checks while the screen is locked</label>
+      <default>false</default>
+    </entry>
+    <entry name="spreadChecks" type="Bool">
+      <label>Start the repositories of an automatic check one after another, spread over the interval</label>
+      <default>false</default>
+    </entry>
+    <entry name="prepareDiffs" type="Bool">
+      <label>Download the changed files of new commits during the check (repositories watched by URL)</label>
+      <default>false</default>
+    </entry>
 
     <!-- Internal state (not shown in the settings dialog) -->
     <entry name="repoState" type="String">

@@ -234,6 +234,28 @@ PlasmoidItem {
     property string cycle: ""            // id of the current check round (see check.sh, PGW_CYCLE)
     property int cycleCount: 0
 
+    // Pauses of the automatic checks (Performance settings): on battery power, or while the screen is
+    // locked. The state is read every 15 s while one of them is on (conditionsTimer). "Check now" always
+    // checks; a check missed during a pause is made as soon as the pause ends.
+    property bool onBattery: false
+    property bool screenLocked: false
+    property bool missedCheck: false
+    property string conditionsCmd: ""
+    readonly property string pauseReason: cfg.pauseOnBattery && onBattery ? "battery"
+                                          : cfg.pauseWhenLocked && screenLocked ? "locked" : ""
+    readonly property string pauseText: pauseReason === "battery" ? i18n("Automatic checks are paused: on battery power")
+                                        : pauseReason === "locked" ? i18n("Automatic checks are paused: the screen is locked") : ""
+    onPauseReasonChanged: {
+        if (pauseReason === "" && missedCheck) {
+            missedCheck = false;
+            Qt.callLater(root.autoCheck);
+        }
+    }
+
+    // Spread checks (Performance settings): the repositories of an automatic check start one after another,
+    // evenly over the interval, instead of all at once.
+    property var spreadQueue: []
+
     property var diffCommit: null
     property var diffLines: []
     property string diffState: "idle"    // loading | ok | error
@@ -658,7 +680,51 @@ PlasmoidItem {
         interval: Math.max(1, root.cfg.intervalMinutes) * 60 * 1000
         running: true
         repeat: true
-        onTriggered: root.checkAll()
+        onTriggered: root.autoCheck()
+    }
+
+    // Starts the next repository of a spread check (see autoCheck).
+    Timer {
+        id: spreadTimer
+        repeat: true
+        onTriggered: root.spreadNext()
+    }
+
+    // Reads the power state and the screen lock while a pause setting is on.
+    Timer {
+        id: conditionsTimer
+        interval: 15000
+        repeat: true
+        triggeredOnStart: true
+        running: root.cfg.pauseOnBattery || root.cfg.pauseWhenLocked
+        onTriggered: {
+            if (root.conditionsCmd === "") {
+                root.conditionsCmd = Helpers.conditionsCommand();
+                conditionsSrc.connectSource(root.conditionsCmd);
+            }
+        }
+        onRunningChanged: {
+            if (!running) {
+                root.onBattery = false;
+                root.screenLocked = false;
+            }
+        }
+    }
+
+    Plasma5Support.DataSource {
+        id: conditionsSrc
+        engine: "executable"
+        connectedSources: []
+        onNewData: (sourceName, data) => {
+            disconnectSource(sourceName);
+            if (sourceName !== root.conditionsCmd) {
+                return;
+            }
+            root.conditionsCmd = "";
+            var out = String(data["stdout"] || "");
+            root.onBattery = /POWER=battery/.test(out);
+            root.screenLocked = /LOCKED=1/.test(out);
+        }
     }
 
     // Versions before 1.2 stored the old built-in icon names as the "default"; an empty value
@@ -730,12 +796,15 @@ PlasmoidItem {
     }
 
     // onlyParent (optional): count only the branches of that repository.
+    // Unread commits of one repository (onlyParent, all its branches), or of all ticked repositories and
+    // branches: an unticked one is switched off and does not count in the badge (see repoShown).
     function sumUnread(onlyParent) {
         var n = 0;
         var seen = {};
+        var active = onlyParent === undefined ? activeSet() : null;
         for (var i = 0; i < repoList.length; ++i) {
             var r = repoList[i];
-            if (onlyParent !== undefined && r.parentId !== onlyParent) {
+            if (onlyParent !== undefined ? r.parentId !== onlyParent : !active[r.id]) {
                 continue;
             }
             var s = st(r.id);
@@ -773,8 +842,14 @@ PlasmoidItem {
         return false;
     }
 
+    // "checking" looks at every repository (a check started before a repository was unticked can still be
+    // stopped); "overflow" and "locked" only at the ticked ones.
     function anyState(which) {
+        var active = which !== "checking" ? activeSet() : null;
         for (var i = 0; i < repoList.length; ++i) {
+            if (active && !active[repoList[i].id]) {
+                continue;
+            }
             var s = st(repoList[i].id);
             if ((which === "overflow" && s.unread > 0 && s.overflow)
                 || (which === "checking" && s.checkState === "checking")
@@ -926,8 +1001,12 @@ PlasmoidItem {
         }
         var lines = [];
         var latest = "";
+        var active = activeSet();
         for (var i = 0; i < repoList.length; ++i) {
             var r = repoList[i];
+            if (!active[r.id]) {
+                continue;
+            }
             var s = st(r.id);
             var name = Helpers.repoDisplayName(r);
             if (s.locked) {
@@ -942,8 +1021,11 @@ PlasmoidItem {
                 latest = s.lastCheck;
             }
         }
-        if (lines.length === 0) {
-            return latest ? i18n("No new commits (checked %1)", latest) : i18n("Checking…");
+        if (pauseText !== "") {
+            lines.push(pauseText);
+        }
+        if (lines.length === 0 || (lines.length === 1 && pauseText !== "")) {
+            lines.unshift(latest ? i18n("No new commits (checked %1)", latest) : i18n("Checking…"));
         }
         return lines.join("\n");
     }
@@ -961,6 +1043,10 @@ PlasmoidItem {
         }
     }
 
+    // A repository is shown when it is ticked in the drop-down (or when there is only one), and so is a
+    // branch in its "Branches" list. An unticked repository or branch is switched off: it is not checked,
+    // sends no notifications and does not count in the badge and the tooltip; ticked again, it is checked
+    // at once (see setSelection). The ticked branch entries are the active ones (activeSet).
     function repoShown(pid) {
         return !showRepoBar || selRepos.length === 0 || selRepos.indexOf(pid) >= 0;
     }
@@ -992,6 +1078,20 @@ PlasmoidItem {
         return chosen.length > 0 ? chosen : all;
     }
 
+    // The active branch entries (those of effectiveIds) as a set: { id: true }.
+    function activeSet() {
+        var set = {};
+        var ids = effectiveIds();
+        for (var i = 0; i < ids.length; ++i) {
+            set[ids[i]] = true;
+        }
+        return set;
+    }
+
+    function unitActive(u) {
+        return repoShown(u.parentId) && shownUnits(u.parentId).some(function(x) { return x.id === u.id; });
+    }
+
     // The ids of the branch entries whose commits the list shows.
     function effectiveIds() {
         var ids = [];
@@ -1011,8 +1111,27 @@ PlasmoidItem {
     }
 
     function setSelection(repos, branches) {
+        var reposBefore = shownRepoIds();
+        var unitsBefore = activeSet();
         selRepos = repos;
         selBranches = branches;
+        // Switched on again: a ticked repository (with its branch list for ALL), or ticked branches of a
+        // repository that was on already.
+        var tickedRepos = shownRepoIds().filter(function(pid) { return reposBefore.indexOf(pid) < 0; });
+        var tickedIn = [];
+        var ids = effectiveIds();
+        for (var i = 0; i < ids.length; ++i) {
+            var u = repoById(ids[i]);
+            if (u && !unitsBefore[u.id] && tickedRepos.indexOf(u.parentId) < 0 && tickedIn.indexOf(u.parentId) < 0) {
+                tickedIn.push(u.parentId);
+            }
+        }
+        if (tickedRepos.length > 0 || tickedIn.length > 0) {
+            Qt.callLater(function() {
+                root.checkRepos(tickedRepos, true);
+                root.checkRepos(tickedIn, false);
+            });
+        }
         var r = JSON.stringify(repos);
         var b = JSON.stringify(branches);
         if (cfg.filterRepos !== r) {
@@ -1301,30 +1420,99 @@ PlasmoidItem {
 
     // Starts a check round. All checks of a round carry the same id, so that the branches of one
     // repository share a single fetch.
+    // Checks every ticked repository now ("Check now", the start, a change of the settings).
     function checkAll() {
+        spreadQueue = [];
+        spreadTimer.stop();
         cycleCount++;
         cycle = "c" + Date.now().toString(36) + "-" + cycleCount;
         discoverAll();
         checkUnits();
     }
 
+    // The check of the timer: none while the automatic checks are paused (it is made when the pause ends);
+    // with "spread checks", the ticked repositories start one after another, evenly over the interval.
+    function autoCheck() {
+        if (pauseReason !== "") {
+            missedCheck = true;
+            bump();
+            return;
+        }
+        var pids = shownRepoIds();
+        if (!cfg.spreadChecks || pids.length < 2) {
+            checkAll();
+            return;
+        }
+        spreadQueue = pids.slice(1);
+        spreadTimer.interval = Math.max(5000, Math.floor(Math.max(1, cfg.intervalMinutes) * 60000 / pids.length));
+        spreadTimer.restart();
+        checkRepos([pids[0]], true);
+    }
+
+    function spreadNext() {
+        if (pauseReason !== "") {
+            // The rest of this round is made when the pause ends.
+            spreadQueue = [];
+            spreadTimer.stop();
+            missedCheck = true;
+            return;
+        }
+        var q = spreadQueue.slice();
+        var pid = q.shift();
+        spreadQueue = q;
+        if (q.length === 0) {
+            spreadTimer.stop();
+        }
+        if (pid !== undefined && repoShown(pid)) {
+            checkRepos([pid], true);
+        }
+    }
+
+    // Checks the repositories pids (ids of repository settings) at once, in a round of their own: the ones
+    // just ticked in the drop-down (discover: look up their branch lists for ALL too), or those with
+    // branches just ticked.
+    function checkRepos(pids, discover) {
+        if (pids.length === 0) {
+            return;
+        }
+        cycleCount++;
+        cycle = "c" + Date.now().toString(36) + "-" + cycleCount;
+        for (var i = 0; i < parsedRepos.length && discover; ++i) {
+            var r = parsedRepos[i];
+            if (pids.indexOf(r.id) >= 0 && r.enabled && Helpers.hasWildcard(r.branch)) {
+                discoverRepo(r);
+            }
+        }
+        for (var k = 0; k < pids.length; ++k) {
+            checkParentId(pids[k]);
+        }
+    }
+
+    // Checks the ticked branches of a ticked repository (all of them when none is chosen).
+    function checkParentId(pid) {
+        if (!repoShown(pid)) {
+            return;
+        }
+        var units = shownUnits(pid);
+        if (units.length > 1) {
+            checkParent(units);
+        } else if (units.length === 1) {
+            checkRepo(units[0]);
+        }
+    }
+
     // One check process per repository: a repository watched on several branches gets them all checked in
     // one process (see check.sh, PGW_MULTI), and its result updates the widget once. A process per branch
     // made the whole panel stall with many branches: starting the processes and handling every result on
     // its own (badge, tooltip, list) added up to a second or two.
+    // Only the ticked repositories are checked (see repoShown).
     function checkUnits() {
         var seen = {};
         for (var i = 0; i < repoList.length; ++i) {
             var pid = repoList[i].parentId;
-            if (seen[pid]) {
-                continue;
-            }
-            seen[pid] = true;
-            var units = parentUnits(pid);
-            if (units.length > 1) {
-                checkParent(units);
-            } else {
-                checkRepo(units[0]);
+            if (!seen[pid]) {
+                seen[pid] = true;
+                checkParentId(pid);
             }
         }
     }
@@ -1365,7 +1553,8 @@ PlasmoidItem {
         startCheck(units, Helpers.checkCommand(scriptPath, {
             repo: r.path, branch: "", key: r.sshKey, tokenFile: r.tokenFile, limit: commitLimit, cycle: cycle, multi: true,
             branches: units.map(function(u) { return u.branch; }),
-            progressId: Helpers.progressKey(r.parentId)
+            progressId: Helpers.progressKey(r.parentId),
+            prepare: cfg.prepareDiffs
         }));
     }
 
@@ -1374,7 +1563,7 @@ PlasmoidItem {
     function discoverAll() {
         for (var i = 0; i < parsedRepos.length; ++i) {
             var r = parsedRepos[i];
-            if (r.enabled && Helpers.hasWildcard(r.branch)) {
+            if (r.enabled && Helpers.hasWildcard(r.branch) && repoShown(r.id)) {
                 discoverRepo(r);
             }
         }
@@ -1440,8 +1629,9 @@ PlasmoidItem {
         }
         startCheck([r], Helpers.checkCommand(scriptPath, {
             repo: r.path, branch: r.branch, key: r.sshKey, tokenFile: r.tokenFile, limit: commitLimit, cycle: cycle,
-            branches: parentUnits(r.parentId).map(function(u) { return u.branch; }).filter(function(b) { return b !== ""; }),
-            progressId: Helpers.progressKey(r.parentId)
+            branches: shownUnits(r.parentId).map(function(u) { return u.branch; }).filter(function(b) { return b !== ""; }),
+            progressId: Helpers.progressKey(r.parentId),
+            prepare: cfg.prepareDiffs
         }));
     }
 
@@ -1761,8 +1951,9 @@ PlasmoidItem {
 
     function notifyNew(r, fresh) {
         // Muted: no notification and no sound. The commit is still counted as unread, and it is
-        // not announced afterwards when the mute is switched off.
-        if (!cfg.notifyEnabled || cfg.muted) {
+        // not announced afterwards when the mute is switched off. An unticked repository or branch (a check
+        // that was running when it was unticked) is not announced either.
+        if (!cfg.notifyEnabled || cfg.muted || !unitActive(r)) {
             return;
         }
         var list = fresh.list;                 // newest first
@@ -3331,6 +3522,9 @@ PlasmoidItem {
                         }
                         if (root.anyChecking && root.activeProgress) {
                             return root.activeProgress.name + ": " + root.progressText(root.activeProgress);
+                        }
+                        if (root.pauseText !== "" && !root.anyChecking) {
+                            return root.pauseText;
                         }
                         var ids = root.effectiveIds();
                         if (ids.length > 1) {

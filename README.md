@@ -37,12 +37,16 @@ The context menu of the widget:
 - Choosing what the popup shows: tick any repositories in the drop-down, and the branches of a repository in
   its "Branches" list (with a search field when there are many). Every repository name has its own color in
   the list, and the choice is remembered. With many repositories, the branch rows fold into one line.
+  An unticked repository or branch is switched off: it is not checked and sends no notifications until it is
+  ticked again.
 - Search (the magnifier button or Ctrl+F) by message, author or hash, in the downloaded commits or with "All
   history" in every commit of the shown branches, and an "Advanced" row with an author filter.
 - Small downloads: a repository watched by URL is kept as one small copy shared by all its branches, with only
   the recent commits and folder listings; the files of a commit are downloaded when its changes are opened.
 - Light on the desktop: one check process per repository, with a low processor and disk priority, and a
-  "Performance" settings page (commits shown at first, commits per branch, branches for ALL).
+  "Performance" settings page: commits shown at first, commits per branch, branches for ALL, pausing the
+  automatic checks on battery power or while the screen is locked, spreading them over the interval,
+  preparing diffs during the check, and the cache size with a "Clear cache" button.
 - Download progress (step, size, speed, time left) while a check runs, a stop button for a check that hangs,
   and a small blinking green dot on the panel icon while a check runs.
 - Text size of the commit list, of the branch rows above it and of the diff view can each be changed with
@@ -94,13 +98,13 @@ search for "Plasma Git Watcher". The store page also offers the `.plasmoid` file
 
 ### From the release package
 
-Download `plasma-git-watcher-1.7.plasmoid` from the
+Download `plasma-git-watcher-1.8.plasmoid` from the
 [latest release](https://github.com/vit-lab/plasma-git-watcher/releases/latest). Use the file listed
 under Assets; the automatic "Source code" archives are not installable packages.
 
 ```sh
-curl -LO https://github.com/vit-lab/plasma-git-watcher/releases/download/v1.7/plasma-git-watcher-1.7.plasmoid
-kpackagetool6 -t Plasma/Applet -i plasma-git-watcher-1.7.plasmoid
+curl -LO https://github.com/vit-lab/plasma-git-watcher/releases/download/v1.8/plasma-git-watcher-1.8.plasmoid
+kpackagetool6 -t Plasma/Applet -i plasma-git-watcher-1.8.plasmoid
 ```
 
 The package can also be installed from the widget explorer: right-click the panel or desktop, open
@@ -114,7 +118,7 @@ The installed version and the checksum of the downloaded file can be checked wit
 
 ```sh
 grep Version ~/.local/share/plasma/plasmoids/local.gitcommitwatcher/metadata.json
-sha256sum plasma-git-watcher-1.7.plasmoid
+sha256sum plasma-git-watcher-1.8.plasmoid
 ```
 
 If the release notes list a SHA-256 checksum, it should match the output of the second command.
