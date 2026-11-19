@@ -94,13 +94,13 @@ search for "Plasma Git Watcher". The store page also offers the `.plasmoid` file
 
 ### From the release package
 
-Download `plasma-git-watcher-1.6.1.plasmoid` from the
+Download `plasma-git-watcher-1.7.plasmoid` from the
 [latest release](https://github.com/vit-lab/plasma-git-watcher/releases/latest). Use the file listed
 under Assets; the automatic "Source code" archives are not installable packages.
 
 ```sh
-curl -LO https://github.com/vit-lab/plasma-git-watcher/releases/download/v1.6.1/plasma-git-watcher-1.6.1.plasmoid
-kpackagetool6 -t Plasma/Applet -i plasma-git-watcher-1.6.1.plasmoid
+curl -LO https://github.com/vit-lab/plasma-git-watcher/releases/download/v1.7/plasma-git-watcher-1.7.plasmoid
+kpackagetool6 -t Plasma/Applet -i plasma-git-watcher-1.7.plasmoid
 ```
 
 The package can also be installed from the widget explorer: right-click the panel or desktop, open
@@ -114,7 +114,7 @@ The installed version and the checksum of the downloaded file can be checked wit
 
 ```sh
 grep Version ~/.local/share/plasma/plasmoids/local.gitcommitwatcher/metadata.json
-sha256sum plasma-git-watcher-1.6.1.plasmoid
+sha256sum plasma-git-watcher-1.7.plasmoid
 ```
 
 If the release notes list a SHA-256 checksum, it should match the output of the second command.
