@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Performance settings for the automatic checks: pause them on battery power and/or while the screen is
+  locked (the tooltip and the footer say why; a missed check is made as soon as the pause ends, and "Check
+  now" always checks), and spread them over the interval (the repositories start one after another instead of
+  all at once; still one check of each per interval).
+- Performance setting "Prepare diffs": after new commits of a repository watched by URL are downloaded, the
+  changed files of up to 5 of them are downloaded too, so their diffs open at once. Merges and the oldest
+  commit of the cache are left out.
+- The Performance page shows the size of the cache (copies of repositories watched by URL, of "All history"
+  searches and of "Open File") and has a "Clear cache" button; the next check downloads the recent commits
+  again.
+
 ### Changed
 
 - An unticked repository in the drop-down, or an unticked branch in a repository's "Branches" list, is

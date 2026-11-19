@@ -234,6 +234,28 @@ PlasmoidItem {
     property string cycle: ""            // id of the current check round (see check.sh, PGW_CYCLE)
     property int cycleCount: 0
 
+    // Pauses of the automatic checks (Performance settings): on battery power, or while the screen is
+    // locked. The state is read every 15 s while one of them is on (conditionsTimer). "Check now" always
+    // checks; a check missed during a pause is made as soon as the pause ends.
+    property bool onBattery: false
+    property bool screenLocked: false
+    property bool missedCheck: false
+    property string conditionsCmd: ""
+    readonly property string pauseReason: cfg.pauseOnBattery && onBattery ? "battery"
+                                          : cfg.pauseWhenLocked && screenLocked ? "locked" : ""
+    readonly property string pauseText: pauseReason === "battery" ? i18n("Automatic checks are paused: on battery power")
+                                        : pauseReason === "locked" ? i18n("Automatic checks are paused: the screen is locked") : ""
+    onPauseReasonChanged: {
+        if (pauseReason === "" && missedCheck) {
+            missedCheck = false;
+            Qt.callLater(root.autoCheck);
+        }
+    }
+
+    // Spread checks (Performance settings): the repositories of an automatic check start one after another,
+    // evenly over the interval, instead of all at once.
+    property var spreadQueue: []
+
     property var diffCommit: null
     property var diffLines: []
     property string diffState: "idle"    // loading | ok | error
@@ -658,7 +680,51 @@ PlasmoidItem {
         interval: Math.max(1, root.cfg.intervalMinutes) * 60 * 1000
         running: true
         repeat: true
-        onTriggered: root.checkAll()
+        onTriggered: root.autoCheck()
+    }
+
+    // Starts the next repository of a spread check (see autoCheck).
+    Timer {
+        id: spreadTimer
+        repeat: true
+        onTriggered: root.spreadNext()
+    }
+
+    // Reads the power state and the screen lock while a pause setting is on.
+    Timer {
+        id: conditionsTimer
+        interval: 15000
+        repeat: true
+        triggeredOnStart: true
+        running: root.cfg.pauseOnBattery || root.cfg.pauseWhenLocked
+        onTriggered: {
+            if (root.conditionsCmd === "") {
+                root.conditionsCmd = Helpers.conditionsCommand();
+                conditionsSrc.connectSource(root.conditionsCmd);
+            }
+        }
+        onRunningChanged: {
+            if (!running) {
+                root.onBattery = false;
+                root.screenLocked = false;
+            }
+        }
+    }
+
+    Plasma5Support.DataSource {
+        id: conditionsSrc
+        engine: "executable"
+        connectedSources: []
+        onNewData: (sourceName, data) => {
+            disconnectSource(sourceName);
+            if (sourceName !== root.conditionsCmd) {
+                return;
+            }
+            root.conditionsCmd = "";
+            var out = String(data["stdout"] || "");
+            root.onBattery = /POWER=battery/.test(out);
+            root.screenLocked = /LOCKED=1/.test(out);
+        }
     }
 
     // Versions before 1.2 stored the old built-in icon names as the "default"; an empty value
@@ -955,8 +1021,11 @@ PlasmoidItem {
                 latest = s.lastCheck;
             }
         }
-        if (lines.length === 0) {
-            return latest ? i18n("No new commits (checked %1)", latest) : i18n("Checking…");
+        if (pauseText !== "") {
+            lines.push(pauseText);
+        }
+        if (lines.length === 0 || (lines.length === 1 && pauseText !== "")) {
+            lines.unshift(latest ? i18n("No new commits (checked %1)", latest) : i18n("Checking…"));
         }
         return lines.join("\n");
     }
@@ -1351,11 +1420,52 @@ PlasmoidItem {
 
     // Starts a check round. All checks of a round carry the same id, so that the branches of one
     // repository share a single fetch.
+    // Checks every ticked repository now ("Check now", the start, a change of the settings).
     function checkAll() {
+        spreadQueue = [];
+        spreadTimer.stop();
         cycleCount++;
         cycle = "c" + Date.now().toString(36) + "-" + cycleCount;
         discoverAll();
         checkUnits();
+    }
+
+    // The check of the timer: none while the automatic checks are paused (it is made when the pause ends);
+    // with "spread checks", the ticked repositories start one after another, evenly over the interval.
+    function autoCheck() {
+        if (pauseReason !== "") {
+            missedCheck = true;
+            bump();
+            return;
+        }
+        var pids = shownRepoIds();
+        if (!cfg.spreadChecks || pids.length < 2) {
+            checkAll();
+            return;
+        }
+        spreadQueue = pids.slice(1);
+        spreadTimer.interval = Math.max(5000, Math.floor(Math.max(1, cfg.intervalMinutes) * 60000 / pids.length));
+        spreadTimer.restart();
+        checkRepos([pids[0]], true);
+    }
+
+    function spreadNext() {
+        if (pauseReason !== "") {
+            // The rest of this round is made when the pause ends.
+            spreadQueue = [];
+            spreadTimer.stop();
+            missedCheck = true;
+            return;
+        }
+        var q = spreadQueue.slice();
+        var pid = q.shift();
+        spreadQueue = q;
+        if (q.length === 0) {
+            spreadTimer.stop();
+        }
+        if (pid !== undefined && repoShown(pid)) {
+            checkRepos([pid], true);
+        }
     }
 
     // Checks the repositories pids (ids of repository settings) at once, in a round of their own: the ones
@@ -1443,7 +1553,8 @@ PlasmoidItem {
         startCheck(units, Helpers.checkCommand(scriptPath, {
             repo: r.path, branch: "", key: r.sshKey, tokenFile: r.tokenFile, limit: commitLimit, cycle: cycle, multi: true,
             branches: units.map(function(u) { return u.branch; }),
-            progressId: Helpers.progressKey(r.parentId)
+            progressId: Helpers.progressKey(r.parentId),
+            prepare: cfg.prepareDiffs
         }));
     }
 
@@ -1519,7 +1630,8 @@ PlasmoidItem {
         startCheck([r], Helpers.checkCommand(scriptPath, {
             repo: r.path, branch: r.branch, key: r.sshKey, tokenFile: r.tokenFile, limit: commitLimit, cycle: cycle,
             branches: shownUnits(r.parentId).map(function(u) { return u.branch; }).filter(function(b) { return b !== ""; }),
-            progressId: Helpers.progressKey(r.parentId)
+            progressId: Helpers.progressKey(r.parentId),
+            prepare: cfg.prepareDiffs
         }));
     }
 
@@ -3410,6 +3522,9 @@ PlasmoidItem {
                         }
                         if (root.anyChecking && root.activeProgress) {
                             return root.activeProgress.name + ": " + root.progressText(root.activeProgress);
+                        }
+                        if (root.pauseText !== "" && !root.anyChecking) {
+                            return root.pauseText;
                         }
                         var ids = root.effectiveIds();
                         if (ids.length > 1) {

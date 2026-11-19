@@ -695,17 +695,60 @@ function metaHtml(c, prefix, col) {
 // o.branches (optional): all watched branches of the repository, fetched together in a round.
 // o.progressId (optional): the name of the progress file of the repository (see progressKey).
 // o.multi (optional): check all of o.branches in one process (see check.sh, PGW_MULTI, and splitBranchOutput).
+// o.prepare (optional): download the changed files of new commits during the check ("Prepare diffs").
 function checkCommand(script, o) {
     return (o.cycle ? "PGW_CYCLE=" + q(o.cycle) + " " : "")
         + (o.branches && o.branches.length ? "PGW_BRANCHES=" + q(o.branches.join(" ")) + " " : "")
         + (o.progressId ? "PGW_PROGRESS_ID=" + q(o.progressId) + " " : "")
         + (o.multi ? "PGW_MULTI=1 " : "")
+        + (o.prepare ? "PGW_PREPARE=1 " : "")
         + "PGW_REPO=" + q(o.repo)
         + " PGW_BRANCH=" + q(o.branch)
         + " PGW_KEY=" + q(o.key)
         + " PGW_TOKEN_FILE=" + q(o.tokenFile)
         + " PGW_LIMIT=" + (o.limit || 50)
         + " bash " + q(script) + uniq();
+}
+
+// Prints "POWER=battery" or "POWER=ac" and "LOCKED=1" or "LOCKED=0", for pausing the automatic checks.
+// On battery: a battery is discharging and no charger (mains, USB, wireless) is online; a computer
+// without a battery is never on battery. Locked: the screen saver service of the session says so.
+function conditionsCommand() {
+    return 'ac=; bat=; for d in /sys/class/power_supply/*; do [ -r "$d/type" ] || continue; '
+        + 'case "$(cat "$d/type")" in '
+        + 'Battery) [ "$(cat "$d/status" 2>/dev/null)" = Discharging ] && bat=1 ;; '
+        + 'Mains|USB*|Wireless) [ "$(cat "$d/online" 2>/dev/null)" = 1 ] && ac=1 ;; '
+        + 'esac; done; '
+        + 'if [ -n "$bat" ] && [ -z "$ac" ]; then echo POWER=battery; else echo POWER=ac; fi; '
+        + 'l=$(dbus-send --session --print-reply=literal --dest=org.freedesktop.ScreenSaver /ScreenSaver '
+        + 'org.freedesktop.ScreenSaver.GetActive 2>/dev/null); '
+        + 'case "$l" in *true*) echo LOCKED=1 ;; *) echo LOCKED=0 ;; esac' + uniq();
+}
+
+// The size of the cache in bytes, in parts: "total=…", "repos=…" (the copies of repositories watched by
+// URL), "history=…" (the copies for "All history" search), "files=…" (the copies of "Open File").
+function cacheSizeCommand() {
+    return 'b="${XDG_CACHE_HOME:-$HOME/.cache}/plasmagitwatcher"; '
+        + 'for p in total repos history files; do d="$b"; [ "$p" = total ] || d="$b/$p"; '
+        + 's=$(du -sb "$d" 2>/dev/null | cut -f1); echo "$p=${s:-0}"; done' + uniq();
+}
+
+// Deletes the cache: the next check downloads the recent commits again.
+function clearCacheCommand() {
+    return 'b="${XDG_CACHE_HOME:-$HOME/.cache}/plasmagitwatcher"; '
+        + 'rm -rf -- "$b/repos" "$b/history" "$b/files"; echo done' + uniq();
+}
+
+// Parses the output of cacheSizeCommand: { total, repos, history, files } in bytes.
+function parseCacheSize(stdout) {
+    var out = { total: 0, repos: 0, history: 0, files: 0 };
+    String(stdout || "").split("\n").forEach(function(l) {
+        var m = /^(total|repos|history|files)=(\d+)$/.exec(l.trim());
+        if (m) {
+            out[m[1]] = parseInt(m[2], 10);
+        }
+    });
+    return out;
 }
 
 // Stops all running checks, with their git processes (check.sh, mode "stop").

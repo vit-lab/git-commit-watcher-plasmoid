@@ -44,7 +44,9 @@ The context menu of the widget:
 - Small downloads: a repository watched by URL is kept as one small copy shared by all its branches, with only
   the recent commits and folder listings; the files of a commit are downloaded when its changes are opened.
 - Light on the desktop: one check process per repository, with a low processor and disk priority, and a
-  "Performance" settings page (commits shown at first, commits per branch, branches for ALL).
+  "Performance" settings page: commits shown at first, commits per branch, branches for ALL, pausing the
+  automatic checks on battery power or while the screen is locked, spreading them over the interval,
+  preparing diffs during the check, and the cache size with a "Clear cache" button.
 - Download progress (step, size, speed, time left) while a check runs, a stop button for a check that hangs,
   and a small blinking green dot on the panel icon while a check runs.
 - Text size of the commit list, of the branch rows above it and of the diff view can each be changed with
