@@ -8,26 +8,31 @@ warranty.
 
 ## Screenshots
 
-The commit list of a repository that is watched on several branches:
+The commit list of two repositories, one of them watched on all of its branches:
 
-![The commit list of a repository with several branches](docs/screenshots/01-commit-list.png)
+![The commit list of two repositories](docs/screenshots/commit_list.png)
 
 The diff view of a commit, with colored section bars, per-file statistics and "Open File" buttons:
 
-![The diff view of a commit](docs/screenshots/02-diff-view.png)
+![The diff view of a commit](docs/screenshots/diff.png)
 
 A desktop notification about a new commit (click it to open the changes), and the panel icon with the
 unread counter:
 
-![A notification about a new commit](docs/screenshots/03-notification.png)
+![A notification about a new commit](docs/screenshots/notification.png)
 
-The settings of a repository, here with all branches watched (ALL):
+The settings of a repository, here with all branches watched (ALL) and the result of "Test connection":
 
-![The repository settings](docs/screenshots/04-settings-repositories.png)
+![The repository settings](docs/screenshots/add_repo.png)
+
+The performance settings: how many commits are listed, the branch limit for ALL and patterns, and pauses
+for automatic checks:
+
+![The performance settings](docs/screenshots/performance_settings.png)
 
 The context menu of the widget:
 
-![The context menu](docs/screenshots/05-context-menu.png)
+![The context menu](docs/screenshots/tray.png)
 
 ## Features
 
